@@ -102,13 +102,13 @@ static void gpio_intr_status_clr(gpio_num_t gpio_num)
 
 static esp_err_t gpio_intr_enable_on_core (gpio_num_t gpio_num, uint32_t core_id)
 {
-    GPIO_CHECK(GPIO_IS_VALID_GPIO(gpio_num), "GPIO number error", ESP_ERR_INVALID_ARG);
-    gpio_intr_status_clr(gpio_num);
-    if (core_id == 0) {
+//    GPIO_CHECK(GPIO_IS_VALID_GPIO(gpio_num), "GPIO number error", ESP_ERR_INVALID_ARG);
+//    gpio_intr_status_clr(gpio_num);
+//    if (core_id == 0) {
         GPIO.pin[gpio_num].int_ena = GPIO_PRO_CPU_INTR_ENA;     //enable pro cpu intr
-    } else {
-        GPIO.pin[gpio_num].int_ena = GPIO_APP_CPU_INTR_ENA;     //enable pro cpu intr
-    }
+//    } else {
+//        GPIO.pin[gpio_num].int_ena = GPIO_APP_CPU_INTR_ENA;     //enable pro cpu intr
+//    }
     return ESP_OK;
 }
 
