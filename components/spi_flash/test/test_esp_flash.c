@@ -6,7 +6,7 @@
 
 #include <unity.h>
 #include "esp_flash.h"
-#include "driver/spi_common.h"
+#include "driver/spi_common_internal.h"
 #include "esp_flash_spi_init.h"
 #include <esp_attr.h>
 #include "esp_log.h"
@@ -14,68 +14,149 @@
 #include <test_utils.h>
 
 #include "unity.h"
-#include "driver/spi_common.h"
 #include "driver/gpio.h"
 #include "soc/io_mux_reg.h"
+#include "sdkconfig.h"
 
+#include "hal/spi_flash_hal.h"
 
 #define FUNC_SPI    1
 
 static uint8_t sector_buf[4096];
 
-// #define TEST_SPI1_CS1
-// #define TEST_SPI2_CS0
-// #define TEST_SPI3_CS0
 #define TEST_SPI_SPEED      ESP_FLASH_10MHZ
 #define TEST_SPI_READ_MODE  SPI_FLASH_FASTRD
-//#define FORCE_GPIO_MATRIX
+// #define FORCE_GPIO_MATRIX
 
+#define EXTRA_SPI1_CLK_IO   17  //the pin which is usually used by the PSRAM clk
+
+#if CONFIG_IDF_TARGET_ESP32
 #define HSPI_PIN_NUM_MOSI   HSPI_IOMUX_PIN_NUM_MOSI
 #define HSPI_PIN_NUM_MISO   HSPI_IOMUX_PIN_NUM_MISO
 #define HSPI_PIN_NUM_CLK    HSPI_IOMUX_PIN_NUM_CLK
 #define HSPI_PIN_NUM_HD     HSPI_IOMUX_PIN_NUM_HD
 #define HSPI_PIN_NUM_WP     HSPI_IOMUX_PIN_NUM_WP
+#define HSPI_PIN_NUM_CS     HSPI_IOMUX_PIN_NUM_CS
 
 #define VSPI_PIN_NUM_MOSI   VSPI_IOMUX_PIN_NUM_MOSI
 #define VSPI_PIN_NUM_MISO   VSPI_IOMUX_PIN_NUM_MISO
 #define VSPI_PIN_NUM_CLK    VSPI_IOMUX_PIN_NUM_CLK
 #define VSPI_PIN_NUM_HD     VSPI_IOMUX_PIN_NUM_HD
 #define VSPI_PIN_NUM_WP     VSPI_IOMUX_PIN_NUM_WP
+#define VSPI_PIN_NUM_CS     VSPI_IOMUX_PIN_NUM_CS
+#elif CONFIG_IDF_TARGET_ESP32S2
+#define FSPI_PIN_NUM_MOSI   FSPI_IOMUX_PIN_NUM_MOSI
+#define FSPI_PIN_NUM_MISO   FSPI_IOMUX_PIN_NUM_MISO
+#define FSPI_PIN_NUM_CLK    FSPI_IOMUX_PIN_NUM_CLK
+#define FSPI_PIN_NUM_HD     FSPI_IOMUX_PIN_NUM_HD
+#define FSPI_PIN_NUM_WP     FSPI_IOMUX_PIN_NUM_WP
+#define FSPI_PIN_NUM_CS     FSPI_IOMUX_PIN_NUM_CS
 
-#if defined TEST_SPI1_CS1
-#  define TEST_HOST   SPI_HOST
-#  define TEST_CS     1
-// #define TEST_CS_PIN 14
-#  define TEST_CS_PIN 16  //the pin which is usually used by the PSRAM
-// #define TEST_CS_PIN 27
-#  define TEST_INPUT_DELAY    0
-#  define EXTRA_SPI1_CLK_IO   17  //the pin which is usually used by the PSRAM clk
+// Just use the same pins for HSPI and VSPI
+#define HSPI_PIN_NUM_MOSI   FSPI_PIN_NUM_MOSI
+#define HSPI_PIN_NUM_MISO   FSPI_PIN_NUM_MISO
+#define HSPI_PIN_NUM_CLK    FSPI_PIN_NUM_CLK
+#define HSPI_PIN_NUM_HD     FSPI_PIN_NUM_HD
+#define HSPI_PIN_NUM_WP     FSPI_PIN_NUM_WP
+#define HSPI_PIN_NUM_CS     FSPI_PIN_NUM_CS
 
-#elif defined TEST_SPI2_CS0
-
-#  define TEST_HOST           HSPI_HOST
-#  define TEST_CS             0
-#  define TEST_CS_PIN         HSPI_IOMUX_PIN_NUM_CS
-#  define TEST_INPUT_DELAY    20
-
-#elif defined TEST_SPI3_CS0
-
-#  define TEST_HOST           VSPI_HOST
-#  define TEST_CS             0
-#  define TEST_CS_PIN         VSPI_IOMUX_PIN_NUM_CS
-#  define TEST_INPUT_DELAY    0
-
-#else
-#  define SKIP_EXTENDED_CHIP_TEST
+#define VSPI_PIN_NUM_MOSI   FSPI_PIN_NUM_MOSI
+#define VSPI_PIN_NUM_MISO   FSPI_PIN_NUM_MISO
+#define VSPI_PIN_NUM_CLK    FSPI_PIN_NUM_CLK
+#define VSPI_PIN_NUM_HD     FSPI_PIN_NUM_HD
+#define VSPI_PIN_NUM_WP     FSPI_PIN_NUM_WP
+#define VSPI_PIN_NUM_CS     FSPI_PIN_NUM_CS
 #endif
 
+#define TEST_CONFIG_NUM (sizeof(config_list)/sizeof(flashtest_config_t))
+
+typedef void (*flash_test_func_t)(esp_flash_t* chip);
+
+/* Use FLASH_TEST_CASE for SPI flash tests that only use the main SPI flash chip
+*/
+#define FLASH_TEST_CASE(STR, FUNC_TO_RUN) \
+    TEST_CASE(STR, "[esp_flash]") {flash_test_func(FUNC_TO_RUN, 1 /* first index reserved for main flash */ );}
+
+/* Use FLASH_TEST_CASE_3 for tests which also run on external flash, which sits in the place of PSRAM
+   (these tests are incompatible with PSRAM)
+
+   These tests run for all the flash chip configs shown in config_list, below (internal and external).
+ */
+#if defined(CONFIG_SPIRAM_SUPPORT) || TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+#define FLASH_TEST_CASE_3(STR, FUNCT_TO_RUN)
+#else
+// Disabled for ESP32-S2 due to lack of runners
+#define FLASH_TEST_CASE_3(STR, FUNC_TO_RUN) \
+    TEST_CASE(STR", 3 chips", "[esp_flash][test_env=UT_T1_ESP_FLASH]") {flash_test_func(FUNC_TO_RUN, TEST_CONFIG_NUM);}
+#endif
+
+//currently all the configs are the same with esp_flash_spi_device_config_t, no more information required
+typedef esp_flash_spi_device_config_t flashtest_config_t;
 
 static const char TAG[] = "test_esp_flash";
 
+#define FLASHTEST_CONFIG_COMMON     \
+    /* 0 always reserved for main flash */ \
+    { \
+        /* no need to init */ \
+        .host_id = -1, \
+    }, \
+    { \
+        .io_mode = TEST_SPI_READ_MODE,\
+        .speed = TEST_SPI_SPEED, \
+        .host_id = SPI_HOST, \
+        .cs_id = 1, \
+        /* the pin which is usually used by the PSRAM */ \
+        .cs_io_num = 16, \
+        .input_delay_ns = 0, \
+    }
 
-#ifndef SKIP_EXTENDED_CHIP_TEST
-
-static esp_flash_t *test_chip = NULL;
+#if CONFIG_IDF_TARGET_ESP32
+flashtest_config_t config_list[] = {
+    FLASHTEST_CONFIG_COMMON,
+    /* current runner doesn't have a flash on HSPI */
+    // {
+    //     .io_mode = TEST_SPI_READ_MODE,
+    //     .speed = TEST_SPI_SPEED,
+    //     .host_id = HSPI_HOST,
+    //     .cs_id = 0,
+    //     // uses GPIO matrix on esp32s2 regardles if FORCE_GPIO_MATRIX
+    //     .cs_io_num = HSPI_PIN_NUM_CS,
+    //     .input_delay_ns = 20,
+    // },
+    {
+        .io_mode = TEST_SPI_READ_MODE,
+        .speed = TEST_SPI_SPEED,
+        .host_id = VSPI_HOST,
+        .cs_id = 0,
+        .cs_io_num = VSPI_PIN_NUM_CS,
+        .input_delay_ns = 0,
+    },
+};
+#elif CONFIG_IDF_TARGET_ESP32S2
+flashtest_config_t config_list[] = {
+    FLASHTEST_CONFIG_COMMON,
+    /* No runners for esp32s2 for these config yet */
+    // {
+    //     .io_mode = TEST_SPI_READ_MODE,
+    //     .speed = TEST_SPI_SPEED,
+    //     .host_id = FSPI_HOST,
+    //     .cs_id = 0,
+    //     .cs_io_num = FSPI_PIN_NUM_CS,
+    //     .input_delay_ns = 0,
+    // },
+    // /* current runner doesn't have a flash on HSPI */
+    // {
+    //     .io_mode = TEST_SPI_READ_MODE,
+    //     .speed = TEST_SPI_SPEED,
+    //     .host_id = HSPI_HOST,
+    //     .cs_id = 0,
+    //     // uses GPIO matrix on esp32s2 regardles if FORCE_GPIO_MATRIX
+    //     .cs_io_num = HSPI_PIN_NUM_CS,
+    //     .input_delay_ns = 20,
+    // },
+};
+#endif
 
 static void setup_bus(spi_host_device_t host_id)
 {
@@ -85,9 +166,26 @@ static void setup_bus(spi_host_device_t host_id)
 #ifdef EXTRA_SPI1_CLK_IO
         gpio_matrix_out(EXTRA_SPI1_CLK_IO, SPICLK_OUT_IDX, 0, 0);
 #endif
+#if !DISABLED_FOR_TARGETS(ESP32)
+    } else if (host_id == FSPI_HOST) {
+        ESP_LOGI(TAG, "setup flash on SPI%d (FSPI) CS0...\n", host_id + 1);
+        spi_bus_config_t fspi_bus_cfg = {
+            .mosi_io_num = FSPI_PIN_NUM_MOSI,
+            .miso_io_num = FSPI_PIN_NUM_MISO,
+            .sclk_io_num = FSPI_PIN_NUM_CLK,
+            .quadhd_io_num = FSPI_PIN_NUM_HD,
+            .quadwp_io_num = FSPI_PIN_NUM_WP,
+            .max_transfer_sz = 64,
+        };
+#ifdef FORCE_GPIO_MATRIX
+        fspi_bus_cfg.quadhd_io_num = 5;
+#endif
+        esp_err_t ret = spi_bus_initialize(host_id, &fspi_bus_cfg, 0);
+        TEST_ESP_OK(ret);
+#endif
         //currently the SPI bus for main flash chip is initialized through GPIO matrix
     } else if (host_id == HSPI_HOST) {
-        ESP_LOGI(TAG, "setup flash on SPI2 (HSPI) CS0...\n");
+        ESP_LOGI(TAG, "setup flash on SPI%d (HSPI) CS0...\n", host_id + 1);
         spi_bus_config_t hspi_bus_cfg = {
             .mosi_io_num = HSPI_PIN_NUM_MOSI,
             .miso_io_num = HSPI_PIN_NUM_MISO,
@@ -96,13 +194,26 @@ static void setup_bus(spi_host_device_t host_id)
             .quadwp_io_num = HSPI_PIN_NUM_WP,
             .max_transfer_sz = 64,
         };
+#if !DISABLED_FOR_TARGETS(ESP32S2)
 #ifdef FORCE_GPIO_MATRIX
         hspi_bus_cfg.quadhd_io_num = 23;
 #endif
+#endif
         esp_err_t ret = spi_bus_initialize(host_id, &hspi_bus_cfg, 0);
         TEST_ESP_OK(ret);
-    } else if (host_id == VSPI_HOST) {
-        ESP_LOGI(TAG, "setup flash on SPI3 (VSPI) CS0...\n");
+
+#if !DISABLED_FOR_TARGETS(ESP32)
+        // HSPI have no multiline mode, use GPIO to pull those pins up
+        gpio_set_direction(HSPI_PIN_NUM_HD, GPIO_MODE_OUTPUT);
+        gpio_set_level(HSPI_PIN_NUM_HD, 1);
+
+        gpio_set_direction(HSPI_PIN_NUM_WP, GPIO_MODE_OUTPUT);
+        gpio_set_level(HSPI_PIN_NUM_WP, 1);
+#endif
+    }
+#if !DISABLED_FOR_TARGETS(ESP32S2)
+    else if (host_id == VSPI_HOST) {
+        ESP_LOGI(TAG, "setup flash on SPI%d (VSPI) CS0...\n", host_id + 1);
         spi_bus_config_t vspi_bus_cfg = {
             .mosi_io_num = VSPI_PIN_NUM_MOSI,
             .miso_io_num = VSPI_PIN_NUM_MISO,
@@ -116,45 +227,67 @@ static void setup_bus(spi_host_device_t host_id)
 #endif
         esp_err_t ret = spi_bus_initialize(host_id, &vspi_bus_cfg, 0);
         TEST_ESP_OK(ret);
-    } else {
+    }
+#endif // disabled for esp32s2
+    else {
         ESP_LOGE(TAG, "invalid bus");
     }
 }
 
 static void release_bus(int host_id)
 {
-    if (host_id == HSPI_HOST || host_id == VSPI_HOST) {
+    //SPI1 bus can't be deinitialized
+    if (host_id == SPI2_HOST || host_id == SPI3_HOST) {
         spi_bus_free(host_id);
     }
 }
 
-static void setup_new_chip(esp_flash_read_mode_t io_mode, esp_flash_speed_t speed)
+static void setup_new_chip(const flashtest_config_t* test_cfg, esp_flash_t** out_chip)
 {
     //the bus should be initialized before the flash is attached to the bus
-    setup_bus(TEST_HOST);
+    if (test_cfg->host_id == -1) {
+        *out_chip = NULL;
+        return;
+    }
+    setup_bus(test_cfg->host_id);
 
     esp_flash_spi_device_config_t dev_cfg = {
-        .host_id = TEST_HOST,
-        .io_mode = io_mode,
-        .speed = speed,
-        .cs_id = TEST_CS,
-        .cs_io_num = TEST_CS_PIN,
-        .input_delay_ns = TEST_INPUT_DELAY,
+        .host_id = test_cfg->host_id,
+        .io_mode = test_cfg->io_mode,
+        .speed = test_cfg->speed,
+        .cs_id = test_cfg->cs_id,
+        .cs_io_num = test_cfg->cs_io_num,
+        .input_delay_ns = test_cfg->input_delay_ns,
     };
-    esp_err_t err = spi_bus_add_flash_device(&test_chip, &dev_cfg);
+    esp_flash_t* init_chip;
+    esp_err_t err = spi_bus_add_flash_device(&init_chip, &dev_cfg);
     TEST_ESP_OK(err);
-    err = esp_flash_init(test_chip);
+    err = esp_flash_init(init_chip);
     TEST_ESP_OK(err);
+    *out_chip = init_chip;
 }
 
-void teardown_test_chip(void)
+void teardown_test_chip(esp_flash_t* chip, spi_host_device_t host)
 {
-    spi_bus_remove_flash_device(test_chip);
-    test_chip = NULL;
-    release_bus(TEST_HOST);
+    //happen to work when chip==NULL
+    spi_bus_remove_flash_device(chip);
+    release_bus(host);
 }
 
-#endif
+static void flash_test_func(flash_test_func_t func, int test_num)
+{
+    for (int i = 0; i < test_num; i++) {
+        ESP_LOGI(TAG, "Testing config %d/%d", i, test_num);
+        flashtest_config_t* config = &config_list[i];
+        esp_flash_t* chip;
+        setup_new_chip(config, &chip);
+        (*func)(chip);
+        teardown_test_chip(chip, config->host_id);
+    }
+    ESP_LOGI(TAG, "Completed %d configs", test_num);
+}
+
+/* ---------- Test code start ------------*/
 
 static void test_metadata(esp_flash_t *chip)
 {
@@ -165,15 +298,8 @@ static void test_metadata(esp_flash_t *chip)
     printf("Flash ID %08x detected size %d bytes\n", id, size);
 }
 
-TEST_CASE("SPI flash metadata functions", "[esp_flash]")
-{
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_metadata(test_chip);
-    teardown_test_chip();
-#endif
-    test_metadata(NULL);
-}
+FLASH_TEST_CASE("SPI flash metadata functions", test_metadata);
+FLASH_TEST_CASE_3("SPI flash metadata functions", test_metadata);
 
 static uint32_t erase_test_region(esp_flash_t *chip, int num_sectors)
 {
@@ -204,7 +330,7 @@ static uint32_t erase_test_region(esp_flash_t *chip, int num_sectors)
     return offs;
 }
 
-void test_simple_read_write(void *chip)
+void test_simple_read_write(esp_flash_t *chip)
 {
     ESP_LOGI(TAG, "Testing chip %p...", chip);
     uint32_t offs = erase_test_region(chip, 1);
@@ -231,17 +357,10 @@ void test_simple_read_write(void *chip)
     }
 }
 
-TEST_CASE("SPI flash simple read/write", "[esp_flash]")
-{
-    test_simple_read_write(NULL);
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_simple_read_write(test_chip);
-    teardown_test_chip();
-#endif
-}
+FLASH_TEST_CASE("SPI flash simple read/write", test_simple_read_write);
+FLASH_TEST_CASE_3("SPI flash simple read/write", test_simple_read_write);
 
-void test_unaligned_read_write(void *chip)
+void test_unaligned_read_write(esp_flash_t *chip)
 {
     ESP_LOGI(TAG, "Testing chip %p...", chip);
     uint32_t offs = erase_test_region(chip, 2);
@@ -259,17 +378,10 @@ void test_unaligned_read_write(void *chip)
     TEST_ASSERT(memcmp(buf, msg, strlen(msg) + 1) == 0);
 }
 
-TEST_CASE("SPI flash unaligned read/write", "[esp_flash]")
-{
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_unaligned_read_write(test_chip);
-    teardown_test_chip();
-#endif
-    test_unaligned_read_write(NULL);
-}
+FLASH_TEST_CASE("SPI flash unaligned read/write", test_unaligned_read_write);
+FLASH_TEST_CASE_3("SPI flash unaligned read/write", test_unaligned_read_write);
 
-void test_single_read_write(void *chip)
+void test_single_read_write(esp_flash_t* chip)
 {
     ESP_LOGI(TAG, "Testing chip %p...", chip);
     uint32_t offs = erase_test_region(chip, 2);
@@ -285,21 +397,14 @@ void test_single_read_write(void *chip)
     }
 }
 
-TEST_CASE("SPI flash single byte reads/writes", "[esp_flash]")
-{
-    test_single_read_write(NULL);
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_single_read_write(test_chip);
-    teardown_test_chip();
-#endif
-}
+FLASH_TEST_CASE("SPI flash single byte reads/writes", test_single_read_write);
+FLASH_TEST_CASE_3("SPI flash single byte reads/writes", test_single_read_write);
 
 
 /* this test is notable because it generates a lot of unaligned reads/writes,
    and also reads/writes across both a sector boundary & many page boundaries.
 */
-void test_three_byte_read_write(void *chip)
+void test_three_byte_read_write(esp_flash_t *chip)
 {
     ESP_LOGI(TAG, "Testing chip %p...", chip);
     uint32_t offs = erase_test_region(chip, 2);
@@ -316,15 +421,8 @@ void test_three_byte_read_write(void *chip)
     }
 }
 
-TEST_CASE("SPI flash three byte reads/writes", "[esp_flash]")
-{
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_three_byte_read_write(test_chip);
-    teardown_test_chip();
-#endif
-    test_three_byte_read_write(NULL);
-}
+FLASH_TEST_CASE("SPI flash three byte reads/writes", test_three_byte_read_write);
+FLASH_TEST_CASE_3("SPI flash three byte reads/writes", test_three_byte_read_write);
 
 void test_erase_large_region(esp_flash_t *chip)
 {
@@ -356,15 +454,8 @@ void test_erase_large_region(esp_flash_t *chip)
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFF, readback);
 }
 
-TEST_CASE("SPI flash erase large region", "[esp_flash]")
-{
-    test_erase_large_region(NULL);
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_erase_large_region(test_chip);
-    teardown_test_chip();
-#endif
-}
+FLASH_TEST_CASE("SPI flash erase large region", test_erase_large_region);
+FLASH_TEST_CASE_3("SPI flash erase large region", test_erase_large_region);
 
 static void test_write_protection(esp_flash_t* chip)
 {
@@ -386,15 +477,8 @@ static void test_write_protection(esp_flash_t* chip)
     }
 }
 
-TEST_CASE("Test esp_flash can enable/disable write protetion", "[esp_flash]")
-{
-    test_write_protection(NULL);
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_write_protection(test_chip);
-    teardown_test_chip();
-#endif
-}
+FLASH_TEST_CASE("Test esp_flash can enable/disable write protetion", test_write_protection);
+FLASH_TEST_CASE_3("Test esp_flash can enable/disable write protetion", test_write_protection);
 
 static const uint8_t large_const_buffer[16400] = {
     203, // first byte
@@ -411,8 +495,73 @@ static void test_write_large_buffer(esp_flash_t *chip, const uint8_t *source, si
 static void write_large_buffer(esp_flash_t *chip, const esp_partition_t *part, const uint8_t *source, size_t length);
 static void read_and_check(esp_flash_t *chip, const esp_partition_t *part, const uint8_t *source, size_t length);
 
-TEST_CASE("SPI flash test reading with all speed/mode permutations", "[esp_flash]")
+// Internal functions for testing, from esp_flash_api.c
+esp_err_t esp_flash_set_io_mode(esp_flash_t* chip, bool qe);
+esp_err_t esp_flash_get_io_mode(esp_flash_t* chip, bool* qe);
+esp_err_t esp_flash_read_chip_id(esp_flash_t* chip, uint32_t* flash_id);
+
+static bool check_winbond_chip(esp_flash_t* chip)
 {
+    uint32_t flash_id;
+    esp_err_t ret = esp_flash_read_chip_id(chip, &flash_id);
+    TEST_ESP_OK(ret);
+    if ((flash_id >> 16) == 0xEF) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static void test_toggle_qe(esp_flash_t* chip)
+{
+    bool qe;
+    if (chip == NULL) {
+        chip = esp_flash_default_chip;
+    }
+    esp_flash_io_mode_t io_mode_before = chip->read_mode;
+    esp_err_t ret = esp_flash_get_io_mode(chip, &qe);
+    TEST_ESP_OK(ret);
+
+    bool is_winbond_chip = check_winbond_chip(chip);
+
+    for (int i = 0; i < 4; i ++) {
+        ESP_LOGI(TAG, "write qe: %d->%d", qe, !qe);
+        qe = !qe;
+        chip->read_mode = qe? SPI_FLASH_QOUT: SPI_FLASH_SLOWRD;
+        ret = esp_flash_set_io_mode(chip, qe);
+        if (is_winbond_chip && !qe && ret == ESP_ERR_FLASH_NO_RESPONSE) {
+            //allows clear qe failure for Winbond chips
+            ret = ESP_OK;
+        }
+        TEST_ESP_OK(ret);
+
+        bool qe_read;
+        ret = esp_flash_get_io_mode(chip, &qe_read);
+        TEST_ESP_OK(ret);
+        ESP_LOGD(TAG, "qe read: %d", qe_read);
+        if (qe != qe_read && !qe && is_winbond_chip) {
+            ESP_LOGE(TAG, "cannot clear QE bit, this may be normal for Winbond chips.");
+            chip->read_mode = io_mode_before;
+            return;
+        }
+        TEST_ASSERT_EQUAL(qe, qe_read);
+    }
+    //restore the io_mode after test
+    chip->read_mode = io_mode_before;
+}
+
+FLASH_TEST_CASE("Test esp_flash_write can toggle QE bit", test_toggle_qe);
+FLASH_TEST_CASE_3("Test esp_flash_write can toggle QE bit", test_toggle_qe);
+
+
+void test_permutations(flashtest_config_t* config)
+{
+    //replace config pointer with pointer to internal temporary config
+    flashtest_config_t temp_cfg;
+    memcpy(&temp_cfg, config, sizeof(flashtest_config_t));
+    flashtest_config_t* cfg = &temp_cfg;
+    esp_flash_t* chip;
+
     const int length = sizeof(large_const_buffer);
     uint8_t *source_buf = malloc(length);
     TEST_ASSERT_NOT_NULL(source_buf);
@@ -424,60 +573,84 @@ TEST_CASE("SPI flash test reading with all speed/mode permutations", "[esp_flash
     const esp_partition_t *part = get_test_data_partition();
     TEST_ASSERT(part->size > length + 2 + SPI_FLASH_SEC_SIZE);
 
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    //use the lowest speed to write and read to make sure success
-    setup_new_chip(TEST_SPI_READ_MODE, ESP_FLASH_SPEED_MIN);
-    write_large_buffer(test_chip, part, source_buf, length);
-    read_and_check(test_chip, part, source_buf, length);
-    teardown_test_chip();
+    //write data to be read, and use the lowest speed to write and read to make sure success
+    cfg->io_mode = SPI_FLASH_READ_MODE_MIN;
+    cfg->speed = ESP_FLASH_SPEED_MIN;
+    setup_new_chip(cfg, &chip);
+    write_large_buffer(chip, part, source_buf, length);
+    read_and_check(chip, part, source_buf, length);
+    teardown_test_chip(chip, cfg->host_id);
 
-    esp_flash_read_mode_t io_mode = SPI_FLASH_READ_MODE_MIN;
-    while (io_mode != SPI_FLASH_READ_MODE_MAX) {
+    if (config->host_id != -1) {
         esp_flash_speed_t speed = ESP_FLASH_SPEED_MIN;
         while (speed != ESP_FLASH_SPEED_MAX) {
-            ESP_LOGI(TAG, "test flash io mode: %d, speed: %d", io_mode, speed);
-            setup_new_chip(io_mode, speed);
-            read_and_check(test_chip, part, source_buf, length);
-            teardown_test_chip();
+            //test io_mode in the inner loop to test QE set/clear function, since
+            //the io mode will switch frequently.
+            esp_flash_io_mode_t io_mode = SPI_FLASH_READ_MODE_MIN;
+            while (io_mode != SPI_FLASH_READ_MODE_MAX) {
+                cfg->io_mode = io_mode;
+                cfg->speed = speed;
+                setup_new_chip(cfg, &chip);
+
+                if (io_mode > SPI_FLASH_FASTRD
+                    && !SOC_SPI_PERIPH_SUPPORT_MULTILINE_MODE(((spi_flash_memspi_data_t *)chip->host->driver_data)->spi)) {
+                    continue;
+                }
+
+                ESP_LOGI(TAG, "test flash io mode: %d, speed: %d", io_mode, speed);
+
+                read_and_check(chip, part, source_buf, length);
+                teardown_test_chip(chip, cfg->host_id);
+                io_mode++;
+            }
             speed++;
         }
-        io_mode++;
+    } else {
+        //test main flash
+        write_large_buffer(NULL, part, source_buf, length);
+        read_and_check(NULL, part, source_buf, length);
     }
-#endif
-
-    //test main flash BTW
-    write_large_buffer(NULL, part, source_buf, length);
-    read_and_check(NULL, part, source_buf, length);
 
     free(source_buf);
 }
 
-TEST_CASE("Test esp_flash_write large const buffer", "[esp_flash]")
+TEST_CASE("SPI flash test reading with all speed/mode permutations", "[esp_flash]")
 {
-    //buffer in flash
-    test_write_large_buffer(NULL, large_const_buffer, sizeof(large_const_buffer));
-#ifndef SKIP_EXTENDED_CHIP_TEST
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_write_large_buffer(test_chip, large_const_buffer, sizeof(large_const_buffer));
-    teardown_test_chip();
-#endif
+    test_permutations(&config_list[0]);
 }
 
-#ifndef SKIP_EXTENDED_CHIP_TEST
-TEST_CASE("Test esp_flash_write large RAM buffer", "[esp_flash]")
+#ifndef CONFIG_SPIRAM_SUPPORT
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+// No runners
+TEST_CASE("SPI flash test reading with all speed/mode permutations, 3 chips", "[esp_flash][test_env=UT_T1_ESP_FLASH]")
+{
+    for (int i = 0; i < TEST_CONFIG_NUM; i++) {
+        test_permutations(&config_list[i]);
+    }
+}
+#endif
+#endif
+
+static void test_write_large_const_buffer(esp_flash_t* chip)
+{
+    test_write_large_buffer(chip, large_const_buffer, sizeof(large_const_buffer));
+}
+
+FLASH_TEST_CASE("Test esp_flash_write large const buffer", test_write_large_const_buffer);
+FLASH_TEST_CASE_3("Test esp_flash_write large const buffer", test_write_large_const_buffer);
+
+static void test_write_large_ram_buffer(esp_flash_t* chip)
 {
     // buffer in RAM
     uint8_t *source_buf = malloc(sizeof(large_const_buffer));
     TEST_ASSERT_NOT_NULL(source_buf);
     memcpy(source_buf, large_const_buffer, sizeof(large_const_buffer));
-
-    setup_new_chip(TEST_SPI_READ_MODE, TEST_SPI_SPEED);
-    test_write_large_buffer(test_chip, source_buf, sizeof(large_const_buffer));
-    teardown_test_chip();
-
+    test_write_large_buffer(chip, source_buf, sizeof(large_const_buffer));
     free(source_buf);
 }
-#endif
+
+FLASH_TEST_CASE("Test esp_flash_write large RAM buffer", test_write_large_ram_buffer);
+FLASH_TEST_CASE_3("Test esp_flash_write large RAM buffer", test_write_large_ram_buffer);
 
 static void write_large_buffer(esp_flash_t *chip, const esp_partition_t *part, const uint8_t *source, size_t length)
 {
@@ -522,3 +695,72 @@ static void test_write_large_buffer(esp_flash_t *chip, const uint8_t *source, si
     write_large_buffer(chip, part, source, length);
     read_and_check(chip, part, source, length);
 }
+
+#ifdef CONFIG_SPIRAM_USE_MALLOC
+
+/* Utility: Read into a small internal RAM buffer using esp_flash_read() and compare what
+   we read with 'buffer' */
+static void s_test_compare_flash_contents_small_reads(esp_flash_t *chip, const uint8_t *buffer, size_t offs, size_t len)
+{
+    const size_t INTERNAL_BUF_SZ = 1024; // Should fit in internal RAM
+    uint8_t *ibuf = heap_caps_malloc(INTERNAL_BUF_SZ, MALLOC_CAP_8BIT|MALLOC_CAP_INTERNAL);
+    TEST_ASSERT_NOT_NULL(ibuf);
+
+    for (int i = 0; i < len; i += INTERNAL_BUF_SZ) {
+        size_t to_read = MIN(INTERNAL_BUF_SZ, len - i);
+        ESP_ERROR_CHECK( esp_flash_read(chip, ibuf, offs + i, to_read) );
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(buffer + i, ibuf, to_read);
+    }
+
+    free(ibuf);
+}
+
+static void test_flash_read_large_psram_buffer(esp_flash_t *chip)
+{
+    const size_t BUF_SZ = 256 * 1024;    // Too large for internal RAM
+    const size_t TEST_OFFS = 0x1000; // Can be any offset, really
+
+    uint8_t *buf = heap_caps_malloc(BUF_SZ, MALLOC_CAP_8BIT|MALLOC_CAP_SPIRAM);
+    TEST_ASSERT_NOT_NULL(buf);
+
+    ESP_ERROR_CHECK( esp_flash_read(chip, buf, TEST_OFFS, BUF_SZ) );
+
+    // Read back the same into smaller internal memory buffer and check it all matches
+    s_test_compare_flash_contents_small_reads(chip, buf, TEST_OFFS, BUF_SZ);
+
+    free(buf);
+}
+
+FLASH_TEST_CASE("esp_flash_read large PSRAM buffer", test_flash_read_large_psram_buffer);
+
+
+/* similar to above test, but perform it under memory pressure */
+static void test_flash_read_large_psram_buffer_low_internal_mem(esp_flash_t *chip)
+{
+    const size_t BUF_SZ = 256 * 1024;    // Too large for internal RAM
+    const size_t REMAINING_INTERNAL = 1024; // Exhaust internal memory until maximum free block is less than this
+    const size_t TEST_OFFS = 0x8000;
+
+    /* Exhaust the available free internal memory */
+    test_utils_exhaust_memory_rec erec = test_utils_exhaust_memory(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT, REMAINING_INTERNAL);
+
+    uint8_t *buf = heap_caps_malloc(BUF_SZ, MALLOC_CAP_8BIT|MALLOC_CAP_SPIRAM);
+    TEST_ASSERT_NOT_NULL(buf);
+
+    /* Calling esp_flash_read() here will need to allocate a small internal buffer,
+       so check it works. */
+    ESP_ERROR_CHECK( esp_flash_read(chip, buf, TEST_OFFS, BUF_SZ) );
+
+    test_utils_free_exhausted_memory(erec);
+
+    // Read back the same into smaller internal memory buffer and check it all matches
+    s_test_compare_flash_contents_small_reads(chip, buf, TEST_OFFS, BUF_SZ);
+
+    free(buf);
+}
+
+FLASH_TEST_CASE("esp_flash_read large PSRAM buffer low memory", test_flash_read_large_psram_buffer_low_internal_mem);
+
+
+
+#endif

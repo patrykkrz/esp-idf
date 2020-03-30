@@ -88,6 +88,7 @@
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
 #include "esp_mesh_internal.h"
+#include "lwip/ip_addr.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -250,6 +251,14 @@ typedef enum {
     MESH_REASON_EMPTY_PASSWORD,             /**< use an empty password to connect to an encrypted parent */
     MESH_REASON_PARENT_UNENCRYPTED,         /**< connect to an unencrypted parent/router */
 } mesh_disconnect_reason_t;
+
+/**
+ * @brief Mesh topology
+ */
+typedef enum {
+    MESH_TOPO_TREE,                         /**< tree topology */
+    MESH_TOPO_CHAIN,                        /**< chain topology */
+} esp_mesh_topology_t;
 
 /*******************************************************
  *                Structures
@@ -1452,6 +1461,28 @@ esp_err_t esp_mesh_get_router_bssid(uint8_t *router_bssid);
  * @return     the TSF time
  */
 int64_t esp_mesh_get_tsf_time(void);
+
+/**
+ * @brief      Set mesh topology. The default value is MESH_TOPO_TREE
+ *             - MESH_TOPO_CHAIN supports up to 1000 layers
+ *
+ * @attention  This API shall be called before mesh is started
+ *
+ * @param[in]  topo  MESH_TOPO_TREE or MESH_TOPO_CHAIN
+ *
+ * @return
+ *    - ESP_OK
+ *    - ESP_MESH_ERR_ARGUMENT
+ *    - ESP_ERR_MESH_NOT_ALLOWED
+ */
+esp_err_t esp_mesh_set_topology(esp_mesh_topology_t topo);
+
+/**
+ * @brief      Get mesh topology
+ *
+ * @return     MESH_TOPO_TREE or MESH_TOPO_CHAIN
+ */
+esp_mesh_topology_t esp_mesh_get_topology(void);
 
 #ifdef __cplusplus
 }

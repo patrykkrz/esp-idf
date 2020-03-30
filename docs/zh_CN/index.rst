@@ -39,6 +39,7 @@ ESP-IDF 编程指南
 .. toctree::
    :hidden:
 
+   :esp32s2: ESP32-S2 预览 <esp32s2>
    快速入门 <get-started/index>
    API 参考 <api-reference/index>
    H/W 参考 <hw-reference/index>

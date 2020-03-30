@@ -9,9 +9,9 @@
 #include "freertos/semphr.h"
 #include "sdkconfig.h"
 #include "soc/rtc.h"
-#include "esp32/clk.h"
 #include "esp_system.h"
 #include "test_utils.h"
+#include "esp_log.h"
 
 #if portNUM_PROCESSORS == 2
 
@@ -233,19 +233,6 @@ static void start_measure(int64_t* sys_time, int64_t* real_time)
     *sys_time = (int64_t)tv_time.tv_sec * 1000000L + tv_time.tv_usec;
 }
 
-static void end_measure(int64_t* sys_time, int64_t* real_time)
-{
-    struct timeval tv_time;
-    int64_t t1, t2;
-    do {
-        t1 = esp_timer_get_time();
-        gettimeofday(&tv_time, NULL);
-        t2 = esp_timer_get_time();
-    } while (t2 - t1 > 40);
-    *real_time = t2;
-    *sys_time  = (int64_t)tv_time.tv_sec * 1000000L + tv_time.tv_usec;
-}
-
 static int64_t calc_correction(const char* tag, int64_t* sys_time, int64_t* real_time)
 {
     int64_t dt_real_time_us = real_time[1] - real_time[0];
@@ -274,23 +261,22 @@ static void measure_time_task(void *pvParameters)
     start_measure(&main_sys_time_us[0], &main_real_time_us[0]);
 
     {
-        int64_t real_time_us[2];
-        int64_t sys_time_us[2];
-        int64_t delay_us = 2 * 1000000; // 2 sec
-        start_measure(&sys_time_us[0], &real_time_us[0]);
+        int64_t real_time_us[2] = { main_real_time_us[0], 0};
+        int64_t sys_time_us[2] = { main_sys_time_us[0], 0};
         // although exit flag is set in another task, checking (exit_flag == false) is safe
         while (exit_flag == false) {
-            ets_delay_us(delay_us);
+            ets_delay_us(2 * 1000000); // 2 sec
 
-            end_measure(&sys_time_us[1], &real_time_us[1]);
+            start_measure(&sys_time_us[1], &real_time_us[1]);
             result_adjtime_correction_us[1] += calc_correction("measure", sys_time_us, real_time_us);
 
             sys_time_us[0]  = sys_time_us[1];
             real_time_us[0] = real_time_us[1];
         }
+        main_sys_time_us[1] = sys_time_us[1];
+        main_real_time_us[1] = real_time_us[1];
     }
 
-    end_measure(&main_sys_time_us[1], &main_real_time_us[1]);
     result_adjtime_correction_us[0] = calc_correction("main", main_sys_time_us, main_real_time_us);
     int64_t delta_us = result_adjtime_correction_us[0] - result_adjtime_correction_us[1];
     printf("\nresult of adjtime correction: %lli us, %lli us. delta = %lli us\n", result_adjtime_correction_us[0], result_adjtime_correction_us[1], delta_us);
@@ -331,11 +317,11 @@ TEST_CASE("test time adjustment happens linearly", "[newlib][timeout=35]")
 }
 #endif
 
-#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 )
+#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC_FRC1 )
 #define WITH_RTC 1
 #endif
 
-#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_FRC1 ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 )
+#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_FRC1 ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_FRC1 ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC_FRC1 )
 #define WITH_FRC 1
 #endif
 void test_posix_timers_clock (void)
@@ -435,3 +421,92 @@ TEST_CASE("test posix_timers clock_... functions", "[newlib]")
 {
     test_posix_timers_clock();
 }
+
+#ifdef CONFIG_SDK_TOOLCHAIN_SUPPORTS_TIME_WIDE_64_BITS
+#include <string.h>
+
+static struct timeval get_time(const char *desc, char *buffer)
+{
+    struct timeval timestamp;
+    gettimeofday(&timestamp, NULL);
+    struct tm* tm_info = localtime(&timestamp.tv_sec);
+    strftime(buffer, 32, "%c", tm_info);
+    ESP_LOGI("TAG", "%s: %016llX (%s)", desc, timestamp.tv_sec, buffer);
+    return timestamp;
+}
+
+TEST_CASE("test time_t wide 64 bits", "[newlib]")
+{
+    static char buffer[32];
+    ESP_LOGI("TAG", "sizeof(time_t): %d (%d-bit)", sizeof(time_t), sizeof(time_t)*8);
+    TEST_ASSERT_EQUAL(8, sizeof(time_t));
+
+    struct tm tm = {4, 14, 3, 19, 0, 138, 0, 0, 0};
+    struct timeval timestamp = { mktime(&tm), 0 };
+    ESP_LOGI("TAG", "timestamp: %016llX", timestamp.tv_sec);
+    settimeofday(&timestamp, NULL);
+    get_time("Set time", buffer);
+
+    while (timestamp.tv_sec < 0x80000003LL) {
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        timestamp = get_time("Time now", buffer);
+    }
+    TEST_ASSERT_EQUAL_MEMORY("Tue Jan 19 03:14:11 2038", buffer, strlen(buffer));
+}
+
+TEST_CASE("test time functions wide 64 bits", "[newlib]")
+{
+    static char origin_buffer[32];
+    char strftime_buf[64];
+
+    int year = 2018;
+    struct tm tm = {0, 14, 3, 19, 0, year - 1900, 0, 0, 0};
+    time_t t = mktime(&tm);
+    while (year < 2119) {
+        struct timeval timestamp = { t, 0 };
+        ESP_LOGI("TAG", "year: %d", year);
+        settimeofday(&timestamp, NULL);
+        get_time("Time now", origin_buffer);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+        t += 86400 * 366;
+        struct tm timeinfo = { 0 };
+        time_t now;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+
+        time_t t = mktime(&timeinfo);
+        ESP_LOGI("TAG", "Test mktime(). Time: %016llX", t);
+        TEST_ASSERT_EQUAL(timestamp.tv_sec, t);
+        // mktime() has error in newlib-3.0.0. It fixed in newlib-3.0.0.20180720
+        TEST_ASSERT_EQUAL((timestamp.tv_sec >> 32), (t >> 32));
+
+        strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+        ESP_LOGI("TAG", "Test time() and localtime_r(). Time: %s", strftime_buf);
+        TEST_ASSERT_EQUAL(timeinfo.tm_year, year - 1900);
+        TEST_ASSERT_EQUAL_MEMORY(origin_buffer, strftime_buf, strlen(origin_buffer));
+
+        struct tm *tm2 = localtime(&now);
+        strftime(strftime_buf, sizeof(strftime_buf), "%c", tm2);
+        ESP_LOGI("TAG", "Test localtime(). Time: %s", strftime_buf);
+        TEST_ASSERT_EQUAL(tm2->tm_year, year - 1900);
+        TEST_ASSERT_EQUAL_MEMORY(origin_buffer, strftime_buf, strlen(origin_buffer));
+
+        struct tm *gm = gmtime(&now);
+        strftime(strftime_buf, sizeof(strftime_buf), "%c", gm);
+        ESP_LOGI("TAG", "Test gmtime(). Time: %s", strftime_buf);
+        TEST_ASSERT_EQUAL_MEMORY(origin_buffer, strftime_buf, strlen(origin_buffer));
+
+        const char* time_str1 = ctime(&now);
+        ESP_LOGI("TAG", "Test ctime(). Time: %s", time_str1);
+        TEST_ASSERT_EQUAL_MEMORY(origin_buffer, time_str1, strlen(origin_buffer));
+
+        const char* time_str2 = asctime(&timeinfo);
+        ESP_LOGI("TAG", "Test asctime(). Time: %s", time_str2);
+        TEST_ASSERT_EQUAL_MEMORY(origin_buffer, time_str2, strlen(origin_buffer));
+
+        printf("\n");
+        ++year;
+    }
+}
+
+#endif // CONFIG_SDK_TOOLCHAIN_SUPPORTS_TIME_WIDE_64_BITS

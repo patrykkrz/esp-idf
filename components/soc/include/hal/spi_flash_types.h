@@ -15,7 +15,7 @@
 #pragma once
 
 #include <esp_types.h>
-#include "hal/esp_flash_err.h"
+#include "esp_flash_err.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,11 +23,13 @@ extern "C" {
 
 /** Definition of a common transaction. Also holds the return value. */
 typedef struct {
-    uint8_t command;        ///< Command to send, always 8bits
-    uint8_t mosi_len;       ///< Output data length, in bits
-    uint8_t miso_len;       ///< Input data length, in bits
-    uint32_t mosi_data;     ///< Output data to slave
-    uint32_t miso_data[2];  ///< [out] Input data from slave, little endian
+    uint8_t command;            ///< Command to send, always 8bits
+    uint8_t mosi_len;           ///< Output data length, in bytes
+    uint8_t miso_len;           ///< Input data length, in bytes
+    uint8_t address_bitlen;     ///< Length of address in bits, set to 0 if command does not need an address
+    uint32_t address;           ///< Address to perform operation on
+    const uint8_t *mosi_data;   ///< Output data to salve
+    uint8_t *miso_data;         ///< [out] Input data from slave, little endian
 } spi_flash_trans_t;
 
 /**
@@ -61,7 +63,7 @@ typedef enum {
     SPI_FLASH_QIO,    ///< Both address & data transferred using quad I/O
 
     SPI_FLASH_READ_MODE_MAX,    ///< The fastest io mode supported by the host is ``ESP_FLASH_READ_MODE_MAX-1``.
-} esp_flash_read_mode_t;
+} esp_flash_io_mode_t;
 
 ///Slowest io mode supported by ESP32, currently SlowRd
 #define SPI_FLASH_READ_MODE_MIN SPI_FLASH_SLOWRD
@@ -130,9 +132,11 @@ struct spi_flash_host_driver_t {
      */
     bool (*host_idle)(spi_flash_host_driver_t *driver);
     /**
-     * Configure the host to work at different read mode.
+     * Configure the host to work at different read mode. Responsible to compensate the timing and set IO mode.
      */
-    esp_err_t (*configure_host_read_mode)(spi_flash_host_driver_t *driver, esp_flash_read_mode_t read_mode, uint32_t addr_bitlen, uint32_t dummy_bitlen_base, uint32_t read_command);
+    esp_err_t (*configure_host_io_mode)(spi_flash_host_driver_t *driver, uint32_t command,
+                                        uint32_t addr_bitlen, int dummy_bitlen_base,
+                                        esp_flash_io_mode_t io_mode);
     /**
      *  Internal use, poll the HW until the last operation is done.
      */

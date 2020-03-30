@@ -131,6 +131,7 @@ typedef enum {
     /* 3xx - Redirection */
     HttpStatus_MovedPermanently  = 301,
     HttpStatus_Found             = 302,
+    HttpStatus_TemporaryRedirect = 307,
 
     /* 4xx - Client Error */
     HttpStatus_Unauthorized      = 401
@@ -265,6 +266,20 @@ esp_err_t esp_http_client_get_header(esp_http_client_handle_t client, const char
 esp_err_t esp_http_client_get_username(esp_http_client_handle_t client, char **value);
 
 /**
+ * @brief      Set http request username.
+ *             The value of username parameter will be assigned to username buffer.
+ *             If the username parameter is NULL then username buffer will be freed.
+ *
+ * @param[in]  client    The esp_http_client handle
+ * @param[in]  username  The username value
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_ERR_INVALID_ARG
+ */
+esp_err_t esp_http_client_set_username(esp_http_client_handle_t client, const char *username);
+
+/**
  * @brief      Get http request password.
  *             The address of password buffer will be assigned to value parameter.
  *             This function must be called after `esp_http_client_init`.
@@ -277,6 +292,32 @@ esp_err_t esp_http_client_get_username(esp_http_client_handle_t client, char **v
  *     - ESP_ERR_INVALID_ARG
  */
 esp_err_t esp_http_client_get_password(esp_http_client_handle_t client, char **value);
+
+/**
+ * @brief      Set http request password.
+ *             The value of password parameter will be assigned to password buffer.
+ *             If the password parameter is NULL then password buffer will be freed.
+ *
+ * @param[in]  client    The esp_http_client handle
+ * @param[in]  password  The password value
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_ERR_INVALID_ARG
+ */
+esp_err_t esp_http_client_set_password(esp_http_client_handle_t client, char *password);
+
+/**
+ * @brief      Set http request auth_type.
+ *
+ * @param[in]  client    The esp_http_client handle
+ * @param[in]  auth_type The esp_http_client auth type
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_ERR_INVALID_ARG
+ */
+esp_err_t esp_http_client_set_authtype(esp_http_client_handle_t client, esp_http_client_auth_type_t auth_type);
 
 /**
  * @brief      Set http request method
@@ -455,6 +496,20 @@ void esp_http_client_add_auth(esp_http_client_handle_t client);
  *     - false
  */
 bool esp_http_client_is_complete_data_received(esp_http_client_handle_t client);
+
+/**
+ * @brief      Helper API to read larger data chunks
+ *             This is a helper API which internally calls `esp_http_client_read` multiple times till the end of data is reached or till the buffer gets full.
+ *
+ * @param[in]  client   The esp_http_client handle
+ * @param      buffer   The buffer
+ * @param[in]  len      The buffer length
+ *
+ * @return
+ *     - Length of data was read
+ */
+
+int esp_http_client_read_response(esp_http_client_handle_t client, char *buffer, int len);
 
 #ifdef __cplusplus
 }

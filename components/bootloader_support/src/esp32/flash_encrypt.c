@@ -22,7 +22,7 @@
 #include "esp_efuse.h"
 #include "esp_log.h"
 #include "esp32/rom/secure_boot.h"
-#include "soc/rtc_wdt.h"
+#include "hal/wdt_hal.h"
 
 #include "esp32/rom/cache.h"
 #include "esp32/rom/spi_flash.h"   /* TODO: Remove this */
@@ -174,7 +174,7 @@ static esp_err_t encrypt_flash_contents(uint32_t flash_crypt_cnt, bool flash_cry
 
     /* If the last flash_crypt_cnt bit is burned or write-disabled, the
        device can't re-encrypt itself. */
-    if (flash_crypt_wr_dis) {
+    if (flash_crypt_wr_dis || flash_crypt_cnt == 0xFF) {
         ESP_LOGE(TAG, "Cannot re-encrypt data (FLASH_CRYPT_CNT 0x%02x write disabled %d", flash_crypt_cnt, flash_crypt_wr_dis);
         return ESP_FAIL;
     }
@@ -236,13 +236,24 @@ static esp_err_t encrypt_bootloader(void)
     /* Check for plaintext bootloader (verification will fail if it's already encrypted) */
     if (esp_image_verify_bootloader(&image_length) == ESP_OK) {
         ESP_LOGD(TAG, "bootloader is plaintext. Encrypting...");
+
+#if CONFIG_SECURE_BOOT_V2_ENABLED
+        // Account for the signature sector after the bootloader
+        image_length = (image_length + FLASH_SECTOR_SIZE - 1) & ~(FLASH_SECTOR_SIZE - 1);
+        image_length += FLASH_SECTOR_SIZE;
+        if (ESP_BOOTLOADER_OFFSET + image_length > ESP_PARTITION_TABLE_OFFSET) {
+            ESP_LOGE(TAG, "Bootloader is too large to fit Secure Boot V2 signature sector and partition table (configured offset 0x%x)", ESP_PARTITION_TABLE_OFFSET);
+            return ESP_ERR_INVALID_STATE;
+        }
+#endif // CONFIG_SECURE_BOOT_V2_ENABLED
+
         err = esp_flash_encrypt_region(ESP_BOOTLOADER_OFFSET, image_length);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to encrypt bootloader in place: 0x%x", err);
             return err;
         }
 
-#ifdef CONFIG_SECURE_BOOT_ENABLED
+#ifdef CONFIG_SECURE_BOOT_V1_ENABLED
         /* If secure boot is enabled and bootloader was plaintext, also
          * need to encrypt secure boot IV+digest.
          */
@@ -334,8 +345,11 @@ esp_err_t esp_flash_encrypt_region(uint32_t src_addr, size_t data_length)
         return ESP_FAIL;
     }
 
+    wdt_hal_context_t rtc_wdt_ctx = {.inst = WDT_RWDT, .rwdt_dev = &RTCCNTL};
     for (size_t i = 0; i < data_length; i += FLASH_SECTOR_SIZE) {
-        rtc_wdt_feed();
+        wdt_hal_write_protect_disable(&rtc_wdt_ctx);
+        wdt_hal_feed(&rtc_wdt_ctx);
+        wdt_hal_write_protect_enable(&rtc_wdt_ctx);
         uint32_t sec_start = i + src_addr;
         err = bootloader_flash_read(sec_start, buf, FLASH_SECTOR_SIZE, false);
         if (err != ESP_OK) {

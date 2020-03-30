@@ -13,13 +13,11 @@
 // limitations under the License.
 
 #include <stdint.h>
+#include <string.h>
 
-#include "btc/btc_task.h"
 #include "btc/btc_manage.h"
 
 #include "esp_err.h"
-#include "esp_bt_defs.h"
-#include "esp_bt_main.h"
 
 #include "btc_ble_mesh_prov.h"
 #include "esp_ble_mesh_provisioning_api.h"
@@ -29,7 +27,7 @@
 
 esp_err_t esp_ble_mesh_register_prov_callback(esp_ble_mesh_prov_cb_t callback)
 {
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     return (btc_profile_cb_set(BTC_PID_PROV, callback) == 0 ? ESP_OK : ESP_FAIL);
 }
@@ -44,7 +42,7 @@ esp_err_t esp_ble_mesh_node_prov_enable(esp_ble_mesh_prov_bearer_t bearers)
     btc_ble_mesh_prov_args_t arg = {0};
     btc_msg_t msg = {0};
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -60,7 +58,7 @@ esp_err_t esp_ble_mesh_node_prov_disable(esp_ble_mesh_prov_bearer_t bearers)
     btc_ble_mesh_prov_args_t arg = {0};
     btc_msg_t msg = {0};
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -72,7 +70,7 @@ esp_err_t esp_ble_mesh_node_prov_disable(esp_ble_mesh_prov_bearer_t bearers)
 }
 
 esp_err_t esp_ble_mesh_node_set_oob_pub_key(uint8_t pub_key_x[32], uint8_t pub_key_y[32],
-                uint8_t private_key[32])
+        uint8_t private_key[32])
 {
     btc_ble_mesh_prov_args_t arg = {0};
     btc_msg_t msg = {0};
@@ -81,7 +79,7 @@ esp_err_t esp_ble_mesh_node_set_oob_pub_key(uint8_t pub_key_x[32], uint8_t pub_k
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -104,7 +102,7 @@ esp_err_t esp_ble_mesh_node_input_number(uint32_t number)
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -124,7 +122,7 @@ esp_err_t esp_ble_mesh_node_input_string(const char *string)
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -145,7 +143,7 @@ esp_err_t esp_ble_mesh_set_unprovisioned_device_name(const char *name)
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -159,7 +157,7 @@ esp_err_t esp_ble_mesh_set_unprovisioned_device_name(const char *name)
 
 #if (CONFIG_BLE_MESH_PROVISIONER)
 esp_err_t esp_ble_mesh_provisioner_read_oob_pub_key(uint8_t link_idx, uint8_t pub_key_x[32],
-            uint8_t pub_key_y[32])
+        uint8_t pub_key_y[32])
 {
     btc_ble_mesh_prov_args_t arg = {0};
     btc_msg_t msg = {0};
@@ -168,7 +166,7 @@ esp_err_t esp_ble_mesh_provisioner_read_oob_pub_key(uint8_t link_idx, uint8_t pu
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -191,7 +189,7 @@ esp_err_t esp_ble_mesh_provisioner_input_string(const char *string, uint8_t link
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -214,7 +212,7 @@ esp_err_t esp_ble_mesh_provisioner_input_number(uint32_t number, uint8_t link_id
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -232,7 +230,7 @@ esp_err_t esp_ble_mesh_provisioner_prov_enable(esp_ble_mesh_prov_bearer_t bearer
     btc_ble_mesh_prov_args_t arg = {0};
     btc_msg_t msg = {0};
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -249,7 +247,7 @@ esp_err_t esp_ble_mesh_provisioner_prov_disable(esp_ble_mesh_prov_bearer_t beare
     btc_ble_mesh_prov_args_t arg = {0};
     btc_msg_t msg = {0};
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -271,7 +269,7 @@ esp_err_t esp_ble_mesh_provisioner_add_unprov_dev(esp_ble_mesh_unprov_dev_add_t 
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -280,9 +278,41 @@ esp_err_t esp_ble_mesh_provisioner_add_unprov_dev(esp_ble_mesh_unprov_dev_add_t 
     arg.provisioner_dev_add.add_dev.addr_type = add_dev->addr_type;
     arg.provisioner_dev_add.add_dev.oob_info = add_dev->oob_info;
     arg.provisioner_dev_add.add_dev.bearer = add_dev->bearer;
-    memcpy(arg.provisioner_dev_add.add_dev.addr, add_dev->addr, sizeof(esp_bd_addr_t));
+    memcpy(arg.provisioner_dev_add.add_dev.addr, add_dev->addr, sizeof(esp_ble_mesh_bd_addr_t));
     memcpy(arg.provisioner_dev_add.add_dev.uuid, add_dev->uuid, 16);
     arg.provisioner_dev_add.flags = flags;
+    return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL)
+            == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
+}
+
+esp_err_t esp_ble_mesh_provisioner_prov_device_with_addr(const uint8_t uuid[16],
+            esp_ble_mesh_bd_addr_t addr, esp_ble_mesh_addr_type_t addr_type,
+            esp_ble_mesh_prov_bearer_t bearer, uint16_t oob_info, uint16_t unicast_addr)
+{
+    btc_ble_mesh_prov_args_t arg = {0};
+    btc_msg_t msg = {0};
+
+    if (uuid == NULL || (bearer == ESP_BLE_MESH_PROV_GATT && (addr == NULL ||
+        addr_type > ESP_BLE_MESH_ADDR_TYPE_RANDOM)) ||
+        (bearer != ESP_BLE_MESH_PROV_ADV && bearer != ESP_BLE_MESH_PROV_GATT) ||
+        !ESP_BLE_MESH_ADDR_IS_UNICAST(unicast_addr)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
+
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_PROV;
+    msg.act = BTC_BLE_MESH_ACT_PROVISIONER_PROV_DEV_WITH_ADDR;
+
+    memcpy(arg.provisioner_prov_dev_with_addr.uuid, uuid, 16);
+    if (addr) {
+        memcpy(arg.provisioner_prov_dev_with_addr.addr, addr, BD_ADDR_LEN);
+        arg.provisioner_prov_dev_with_addr.addr_type = addr_type;
+    }
+    arg.provisioner_prov_dev_with_addr.bearer = bearer;
+    arg.provisioner_prov_dev_with_addr.oob_info = oob_info;
+    arg.provisioner_prov_dev_with_addr.unicast_addr = unicast_addr;
     return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL)
             == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
 }
@@ -297,7 +327,7 @@ esp_err_t esp_ble_mesh_provisioner_delete_dev(esp_ble_mesh_device_delete_t *del_
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -306,7 +336,7 @@ esp_err_t esp_ble_mesh_provisioner_delete_dev(esp_ble_mesh_device_delete_t *del_
     arg.provisioner_dev_del.del_dev.flag = del_dev->flag;
     if (del_dev->flag & DEL_DEV_ADDR_FLAG) {
         arg.provisioner_dev_del.del_dev.addr_type = del_dev->addr_type;
-        memcpy(arg.provisioner_dev_del.del_dev.addr, del_dev->addr, sizeof(esp_bd_addr_t));
+        memcpy(arg.provisioner_dev_del.del_dev.addr, del_dev->addr, sizeof(esp_ble_mesh_bd_addr_t));
     } else if (del_dev->flag & DEL_DEV_UUID_FLAG) {
         memcpy(arg.provisioner_dev_del.del_dev.uuid, del_dev->uuid, 16);
     }
@@ -320,7 +350,7 @@ esp_err_t esp_ble_mesh_provisioner_set_dev_uuid_match(const uint8_t *match_val, 
     btc_ble_mesh_prov_args_t arg = {0};
     btc_msg_t msg = {0};
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -346,7 +376,7 @@ esp_err_t esp_ble_mesh_provisioner_set_prov_data_info(esp_ble_mesh_prov_data_inf
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -360,6 +390,47 @@ esp_err_t esp_ble_mesh_provisioner_set_prov_data_info(esp_ble_mesh_prov_data_inf
     } else if (prov_data_info->flag & PROV_DATA_IV_INDEX_FLAG) {
         arg.set_prov_data_info.prov_data.iv_index = prov_data_info->iv_index;
     }
+    return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL)
+            == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
+}
+
+esp_err_t esp_ble_mesh_provisioner_set_static_oob_value(const uint8_t *value, uint8_t length)
+{
+    btc_ble_mesh_prov_args_t arg = {0};
+    btc_msg_t msg = {0};
+
+    if (value == NULL || length == 0 || length > 16) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
+
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_PROV;
+    msg.act = BTC_BLE_MESH_ACT_PROVISIONER_SET_STATIC_OOB_VAL;
+
+    arg.set_static_oob_val.length = length;
+    memcpy(arg.set_static_oob_val.value, value, length);
+    return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL)
+            == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
+}
+
+esp_err_t esp_ble_mesh_provisioner_set_primary_elem_addr(uint16_t addr)
+{
+    btc_ble_mesh_prov_args_t arg = {0};
+    btc_msg_t msg = {0};
+
+    if (!ESP_BLE_MESH_ADDR_IS_UNICAST(addr)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
+
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_PROV;
+    msg.act = BTC_BLE_MESH_ACT_PROVISIONER_SET_PRIMARY_ELEM_ADDR;
+
+    arg.set_primary_elem_addr.addr = addr;
     return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL)
             == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
 }
@@ -379,7 +450,7 @@ esp_err_t esp_ble_mesh_set_fast_prov_info(esp_ble_mesh_fast_prov_info_t *fast_pr
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
@@ -408,7 +479,7 @@ esp_err_t esp_ble_mesh_set_fast_prov_action(esp_ble_mesh_fast_prov_action_t acti
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_BLUEDROID_STATUS_CHECK(ESP_BLUEDROID_STATUS_ENABLED);
+    ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;

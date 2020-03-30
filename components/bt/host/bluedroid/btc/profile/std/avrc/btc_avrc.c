@@ -178,14 +178,14 @@ bool btc_avrc_ct_init_p(void)
 bool btc_avrc_tg_connected_p(void)
 {
     return (s_rc_tg_init == BTC_RC_TG_INIT_MAGIC) &&
-           (btc_rc_cb.rc_connected = TRUE) &&
+           (btc_rc_cb.rc_connected == TRUE) &&
            (btc_rc_cb.rc_features & BTA_AV_FEAT_RCCT);
 }
 
 bool btc_avrc_ct_connected_p(void)
 {
     return (s_rc_ct_init == BTC_RC_CT_INIT_MAGIC) &&
-           (btc_rc_cb.rc_connected = TRUE) &&
+           (btc_rc_cb.rc_connected == TRUE) &&
            (btc_rc_cb.rc_features & BTA_AV_FEAT_RCTG);
 }
 
@@ -564,7 +564,7 @@ static void handle_rc_attributes_rsp (tAVRC_MSG_VENDOR *vendor_msg)
 
         btc_avrc_ct_cb_to_app(ESP_AVRC_CT_METADATA_RSP_EVT, &param[i]);
 
-        attr_index += (int) vendor_msg->p_vendor_data[7 + attr_index] + 8;
+        attr_index += attr_length + 8;
     }
 }
 

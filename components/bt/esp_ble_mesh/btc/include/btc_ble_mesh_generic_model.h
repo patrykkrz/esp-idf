@@ -15,8 +15,7 @@
 #ifndef _BTC_BLE_MESH_GENERIC_MODEL_H_
 #define _BTC_BLE_MESH_GENERIC_MODEL_H_
 
-#include <stdint.h>
-#include "btc/btc_task.h"
+#include "btc/btc_manage.h"
 #include "esp_ble_mesh_generic_model_api.h"
 
 typedef enum {
@@ -59,5 +58,19 @@ void bt_mesh_generic_client_cb_evt_to_btc(u32_t opcode, u8_t evt_type,
         struct bt_mesh_model *model,
         struct bt_mesh_msg_ctx *ctx,
         const u8_t *val, size_t len);
+
+typedef enum {
+    BTC_BLE_MESH_EVT_GENERIC_SERVER_STATE_CHANGE,
+    BTC_BLE_MESH_EVT_GENERIC_SERVER_RECV_GET_MSG,
+    BTC_BLE_MESH_EVT_GENERIC_SERVER_RECV_SET_MSG,
+    BTC_BLE_MESH_EVT_GENERIC_SERVER_MAX,
+} btc_ble_mesh_generic_server_evt_t;
+
+void bt_mesh_generic_server_cb_evt_to_btc(u8_t evt_type,
+        struct bt_mesh_model *model,
+        struct bt_mesh_msg_ctx *ctx,
+        const u8_t *val, size_t len);
+
+void btc_ble_mesh_generic_server_cb_handler(btc_msg_t *msg);
 
 #endif /* _BTC_BLE_MESH_GENERIC_MODEL_H_ */

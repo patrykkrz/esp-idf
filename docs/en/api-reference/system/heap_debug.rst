@@ -117,6 +117,16 @@ Calls to :cpp:func:`heap_caps_check_integrity` may print errors relating to 0xFE
 - For free heap blocks, the checker expects to find all bytes set to 0xFE. Any other values indicate a use-after-free bug where free memory has been incorrectly overwritten.
 - For allocated heap blocks, the behaviour is the same as for `Light Impact` mode. The canary bytes 0xABBA1234 and 0xBAAD5678 are checked at the head and tail of each allocated buffer, and any variation indicates a buffer overrun/underrun.
 
+.. _heap-task-tracking:
+
+Heap Task Tracking
+------------------
+
+Heap Task Tracking can be used to get per task info for heap memory allocation.
+Application has to specify the heap capabilities for which the heap allocation is to be tracked.
+
+Example code is provided in :example:`system/heap_task_tracking`
+
 .. _heap-tracing:
 
 Heap Tracing
@@ -218,7 +228,7 @@ Host-Based Mode
 Once you've identified the code which you think is leaking:
 
 - In the project configuration menu, navigate to ``Component settings`` -> ``Heap Memory Debugging`` -> :ref:`CONFIG_HEAP_TRACING_DEST` and select ``Host-Based``.
-- In the project configuration menu, navigate to ``Component settings`` -> ``Application Level Tracing`` -> :ref:`CONFIG_ESP32_APPTRACE_DESTINATION` and select ``Trace memory``.
+- In the project configuration menu, navigate to ``Component settings`` -> ``Application Level Tracing`` -> :ref:`CONFIG_APPTRACE_DESTINATION` and select ``Trace memory``.
 - In the project configuration menu, navigate to ``Component settings`` -> ``Application Level Tracing`` -> ``FreeRTOS SystemView Tracing`` and enable :ref:`CONFIG_SYSVIEW_ENABLE`.
 - Call the function :cpp:func:`heap_trace_init_tohost` early in the program, to initialize JTAG heap tracing module.
 - Call the function :cpp:func:`heap_trace_start` to begin recording all mallocs/frees in the system. Call this immediately before the piece of code which you suspect is leaking memory.
@@ -280,11 +290,11 @@ To gather and analyse heap trace do the following on the host:
 
 Using this file GDB will connect to the target, reset it, and start tracing when program hits breakpoint at :cpp:func:`heap_trace_start`. Trace data will be saved to ``/tmp/heap_log.svdat``. Tracing will be stopped when program hits breakpoint at :cpp:func:`heap_trace_stop`.
 
-4. Run GDB using the following command ``xtensa-esp32-elf-gdb -x gdbinit </path/to/program/elf>``
+4. Run GDB using the following command ``xtensa-{IDF_TARGET_TOOLCHAIN_NAME}-elf-gdb -x gdbinit </path/to/program/elf>``
 
 5. Quit GDB when program stops at :cpp:func:`heap_trace_stop`. Trace data are saved in ``/tmp/heap.svdat``
 
-6. Run processing script ``$IDF_PATH/tools/esp_app_trace/sysviewtrace_proc.py /tmp/heap_log.svdat </path/to/program/elf>``
+6. Run processing script ``$IDF_PATH/tools/esp_app_trace/sysviewtrace_proc.py -p -b </path/to/program/elf> /tmp/heap_log.svdat``
 
 The output from the heap trace will look something like this::
 
@@ -402,4 +412,4 @@ One way to differentiate between "real" and "false positive" memory leaks is to 
 API Reference - Heap Tracing
 ----------------------------
 
-.. include:: /_build/inc/esp_heap_trace.inc
+.. include-build-file:: inc/esp_heap_trace.inc

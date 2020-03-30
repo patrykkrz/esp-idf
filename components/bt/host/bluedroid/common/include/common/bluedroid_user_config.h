@@ -22,8 +22,8 @@
 /**********************************************************
  * Thread/Task reference
  **********************************************************/
-#ifdef CONFIG_BTU_TASK_STACK_SIZE
-#define UC_BTU_TASK_STACK_SIZE              CONFIG_BTU_TASK_STACK_SIZE
+#ifdef CONFIG_BT_BTU_TASK_STACK_SIZE
+#define UC_BTU_TASK_STACK_SIZE              CONFIG_BT_BTU_TASK_STACK_SIZE
 #else
 #define UC_BTU_TASK_STACK_SIZE              4096
 #endif
@@ -53,7 +53,14 @@
 #define UC_BT_SPP_ENABLED                   FALSE
 #endif
 
-//HFP
+//HFP(AG)
+#ifdef CONFIG_BT_HFP_AG_ENABLE
+#define UC_BT_HFP_AG_ENABLED            CONFIG_BT_HFP_AG_ENABLE
+#else
+#define UC_BT_HFP_AG_ENABLED            FALSE
+#endif
+
+//HFP(Client)
 #ifdef CONFIG_BT_HFP_CLIENT_ENABLE
 #define UC_BT_HFP_CLIENT_ENABLED            CONFIG_BT_HFP_CLIENT_ENABLE
 #else
@@ -150,6 +157,12 @@
 #define UC_BT_BLE_HOST_QUEUE_CONGESTION_CHECK   CONFIG_BT_BLE_HOST_QUEUE_CONGESTION_CHECK
 #else
 #define UC_BT_BLE_HOST_QUEUE_CONGESTION_CHECK   FALSE
+#endif
+
+#ifdef CONFIG_BT_GATTS_PPCP_CHAR_GAP
+#define UC_CONFIG_BT_GATTS_PPCP_CHAR_GAP        CONFIG_BT_GATTS_PPCP_CHAR_GAP
+#else
+#define UC_CONFIG_BT_GATTS_PPCP_CHAR_GAP        FALSE
 #endif
 
 #ifdef CONFIG_BT_GATTS_SEND_SERVICE_CHANGE_MODE

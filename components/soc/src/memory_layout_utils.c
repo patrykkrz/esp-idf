@@ -15,6 +15,7 @@
 #include <string.h>
 #include "esp_log.h"
 #include "soc/soc_memory_layout.h"
+#include "sdkconfig.h"
 
 static const char *TAG = "memory_layout";
 
@@ -25,20 +26,10 @@ static const char *TAG = "memory_layout";
 extern soc_reserved_region_t soc_reserved_memory_region_start;
 extern soc_reserved_region_t soc_reserved_memory_region_end;
 
-/*
-These variables have the start and end of the data and static IRAM
-area used by the program. Defined in the linker script.
-*/
-extern int _data_start, _heap_start, _iram_start, _iram_end;
-
-/* static DRAM & IRAM chunks */
-static const size_t EXTRA_RESERVED_REGIONS = 2;
-
 static size_t s_get_num_reserved_regions(void)
 {
-    return ( ( &soc_reserved_memory_region_end
-               - &soc_reserved_memory_region_start ) +
-             EXTRA_RESERVED_REGIONS );
+    return ( &soc_reserved_memory_region_end
+               - &soc_reserved_memory_region_start );
 }
 
 size_t soc_get_available_memory_region_max_count(void)
@@ -62,15 +53,7 @@ static int s_compare_reserved_regions(const void *a, const void *b)
 */
 static void s_prepare_reserved_regions(soc_reserved_region_t *reserved, size_t count)
 {
-    memcpy(reserved + EXTRA_RESERVED_REGIONS,
-           &soc_reserved_memory_region_start,
-           (count - EXTRA_RESERVED_REGIONS) * sizeof(soc_reserved_region_t));
-
-    /* Add the EXTRA_RESERVED_REGIONS at the beginning */
-    reserved[0].start = (intptr_t)&_data_start; /* DRAM used by data+bss and possibly rodata */
-    reserved[0].end = (intptr_t)&_heap_start;
-    reserved[1].start = (intptr_t)&_iram_start; /* IRAM used by code */
-    reserved[1].end = (intptr_t)&_iram_end;
+    memcpy(reserved, &soc_reserved_memory_region_start, count * sizeof(soc_reserved_region_t));
 
     /* Sort by starting address */
     qsort(reserved, count, sizeof(soc_reserved_region_t), s_compare_reserved_regions);

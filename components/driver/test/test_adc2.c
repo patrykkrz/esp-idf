@@ -12,6 +12,8 @@
 #include "nvs_flash.h"
 #include "test_utils.h"
 
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+
 static const char* TAG = "test_adc2";
 
 #define DEFAULT_SSID "TEST_SSID"
@@ -46,7 +48,7 @@ static void ip_event_handler(void* arg, esp_event_base_t event_base,
         case IP_EVENT_STA_GOT_IP:
             event = (ip_event_got_ip_t*)event_data;
             ESP_LOGI(TAG, "IP_EVENT_STA_GOT_IP");
-            ESP_LOGI(TAG, "got ip:%s\n", ip4addr_ntoa(&event->ip_info.ip));
+            ESP_LOGI(TAG, "got ip:" IPSTR "\n", IP2STR(&event->ip_info.ip));
             break;
         default:
             break;
@@ -92,10 +94,12 @@ TEST_CASE("adc2 work with wifi","[adc]")
         printf("no free pages or nvs version mismatch, erase..\n");
         TEST_ESP_OK(nvs_flash_erase());
         r = nvs_flash_init();
-    } 
+    }
     TEST_ESP_OK( r);
-    tcpip_adapter_init();
+    esp_netif_init();
     event_init();
+    esp_netif_create_default_wifi_sta();
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     TEST_ESP_OK(esp_wifi_init(&cfg));
     wifi_config_t wifi_config = {
@@ -106,7 +110,7 @@ TEST_CASE("adc2 work with wifi","[adc]")
     };
     TEST_ESP_OK(esp_wifi_set_mode(WIFI_MODE_STA));
     TEST_ESP_OK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
-    
+
     //test read value
     TEST_ESP_OK( adc2_get_raw( ADC2_CHANNEL_8, ADC_WIDTH_12Bit, &read_raw ));
     target_value = 30*4096*3/256; //3 = 3.3/1.1
@@ -144,5 +148,7 @@ TEST_CASE("adc2 work with wifi","[adc]")
 
     printf("test passed...\n");
 
-    TEST_IGNORE_MESSAGE("this test case is ignored due to the critical memory leak of tcpip_adapter and event_loop.");
+    TEST_IGNORE_MESSAGE("this test case is ignored due to the critical memory leak of esp_netif and event_loop.");
 }
+
+#endif

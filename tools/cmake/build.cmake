@@ -96,7 +96,6 @@ function(__build_set_default_build_specifications)
     list(APPEND compile_options     "-ffunction-sections"
                                     "-fdata-sections"
                                     "-fstrict-volatile-bitfields"
-                                    "-nostdlib"
                                     # warning-related flags
                                     "-Wall"
                                     "-Werror=all"
@@ -114,8 +113,7 @@ function(__build_set_default_build_specifications)
     list(APPEND c_compile_options   "-std=gnu99"
                                     "-Wno-old-style-declaration")
 
-    list(APPEND cxx_compile_options "-std=gnu++11"
-                                    "-fno-rtti")
+    list(APPEND cxx_compile_options "-std=gnu++11")
 
     idf_build_set_property(COMPILE_DEFINITIONS "${compile_definitions}" APPEND)
     idf_build_set_property(COMPILE_OPTIONS "${compile_options}" APPEND)
@@ -154,7 +152,9 @@ function(__build_init idf_path)
     endforeach()
 
     # Set components required by all other components in the build
-    set(requires_common cxx newlib freertos heap log soc esp_rom esp_common xtensa)
+    #
+    # - lwip is here so that #include <sys/socket.h> works without any special provisions
+    set(requires_common cxx newlib freertos heap log lwip soc esp_rom esp_common esp_system xtensa)
     idf_build_set_property(__COMPONENT_REQUIRES_COMMON "${requires_common}")
 
     __build_get_idf_git_revision()
@@ -181,7 +181,8 @@ endfunction()
 #
 function(__build_resolve_and_add_req var component_target req type)
     __component_get_target(_component_target ${req})
-    if(NOT _component_target)
+    __component_get_property(_component_registered ${component_target} __COMPONENT_REGISTERED)
+    if(NOT _component_target OR NOT _component_registered)
         message(FATAL_ERROR "Failed to resolve component '${req}'.")
     endif()
     __component_set_property(${component_target} ${type} ${_component_target} APPEND)
@@ -367,8 +368,8 @@ endfunction()
 #                       are processed.
 macro(idf_build_process target)
     set(options)
-    set(single_value PROJECT_DIR PROJECT_VER PROJECT_NAME BUILD_DIR SDKCONFIG SDKCONFIG_DEFAULTS)
-    set(multi_value COMPONENTS)
+    set(single_value PROJECT_DIR PROJECT_VER PROJECT_NAME BUILD_DIR SDKCONFIG)
+    set(multi_value COMPONENTS SDKCONFIG_DEFAULTS)
     cmake_parse_arguments(_ "${options}" "${single_value}" "${multi_value}" ${ARGN})
 
     idf_build_set_property(BOOTLOADER_BUILD "${BOOTLOADER_BUILD}")
@@ -441,14 +442,6 @@ macro(idf_build_process target)
     __kconfig_generate_config("${sdkconfig}" "${sdkconfig_defaults}")
     __build_import_configs()
 
-    # Temporary trick to support both gcc5 and gcc8 builds
-    if(CMAKE_C_COMPILER_VERSION VERSION_EQUAL 5.2.0)
-        set(GCC_NOT_5_2_0 0 CACHE STRING "GCC is 5.2.0 version")
-    else()
-        set(GCC_NOT_5_2_0 1 CACHE STRING "GCC is not 5.2.0 version")
-    endif()
-    idf_build_set_property(COMPILE_DEFINITIONS "-DGCC_NOT_5_2_0" APPEND)
-
     # All targets built under this scope is with the ESP-IDF build system
     set(ESP_PLATFORM 1)
     idf_build_set_property(COMPILE_DEFINITIONS "-DESP_PLATFORM" APPEND)
@@ -469,6 +462,11 @@ endmacro()
 # files used for linking, targets which should execute before creating the specified executable,
 # generating additional binary files, generating files related to flashing, etc.)
 function(idf_build_executable elf)
+    # Set additional link flags for the executable
+    idf_build_get_property(link_options LINK_OPTIONS)
+    # Using LINK_LIBRARIES here instead of LINK_OPTIONS, as the latter is not in CMake 3.5.
+    set_property(TARGET ${elf} APPEND PROPERTY LINK_LIBRARIES "${link_options}")
+
     # Propagate link dependencies from component library targets to the executable
     idf_build_get_property(link_depends __LINK_DEPENDS)
     set_property(TARGET ${elf} APPEND PROPERTY LINK_DEPENDS "${link_depends}")

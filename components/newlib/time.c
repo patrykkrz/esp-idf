@@ -22,26 +22,38 @@
 #include <sys/time.h>
 #include <sys/times.h>
 #include <sys/lock.h>
-#include <esp32/rom/rtc.h>
 #include "esp_attr.h"
 #include "esp_intr_alloc.h"
-#include "esp32/clk.h"
 #include "esp_timer.h"
 #include "soc/soc.h"
 #include "soc/rtc.h"
 #include "soc/frc_timer_reg.h"
-#include "esp32/rom/ets_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/xtensa_api.h"
 #include "freertos/task.h"
-#include "sdkconfig.h"
 #include "limits.h"
+#include "sdkconfig.h"
+#if CONFIG_IDF_TARGET_ESP32
+#include "esp32/rom/ets_sys.h"
+#include "esp32/clk.h"
+#include "esp32/rom/rtc.h"
+#elif CONFIG_IDF_TARGET_ESP32S2
+#include "esp32s2/clk.h"
+#include "esp32s2/rom/rtc.h"
+#include "esp32s2/rom/ets_sys.h"
+#endif
 
-#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 )
+#ifdef CONFIG_SDK_TOOLCHAIN_SUPPORTS_TIME_WIDE_64_BITS
+_Static_assert(sizeof(time_t) == 8, "The toolchain does not support time_t wide 64-bits");
+#else
+_Static_assert(sizeof(time_t) == 4, "The toolchain supports time_t wide 64-bits. Please enable CONFIG_SDK_TOOLCHAIN_SUPPORTS_TIME_WIDE_64_BITS.");
+#endif
+
+#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC_FRC1 )
 #define WITH_RTC 1
 #endif
 
-#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_FRC1 ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 )
+#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_FRC1 ) || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_FRC1 ) || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC_FRC1 )
 #define WITH_FRC 1
 #endif
 

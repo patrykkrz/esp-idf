@@ -108,6 +108,10 @@ given VFS driver.
 :cpp:func:`end_select` is called to stop/deinitialize/free the
 environment which was setup by :cpp:func:`start_select`.
 
+.. note::
+    :cpp:func:`end_select` might be called without a previous :cpp:func:`start_select` call in some rare
+    circumstances. :cpp:func:`end_select` should fail gracefully if this is the case.
+
 Please refer to the
 reference implementation for the UART peripheral in
 :component_file:`vfs/vfs_uart.c` and most particularly to the functions
@@ -154,6 +158,10 @@ Please see :component_file:`lwip/port/esp32/vfs_lwip.c` for a reference socket d
 .. note::
     If you use :cpp:func:`select` for socket file descriptors only then you can enable the
     :envvar:`CONFIG_LWIP_USE_ONLY_LWIP_SELECT` option to reduce the code size and improve performance.
+
+.. note::
+    Don't change the socket driver during an active :cpp:func:`select` call or you might experience some undefined
+    behavior.
 
 Paths
 -----
@@ -220,7 +228,7 @@ The following code is transferred to ``fprintf(__getreent()->_stderr, "42\n");``
     fprintf(stderr, "42\n");
 
 
-The ``__getreent()`` function returns a per-task pointer to ``struct _reent`` (:component_file:`newlib/include/sys/reent.h#L370-L417`). This structure is allocated on the TCB of each task. When a task is initialized, ``_stdin``, ``_stdout``, and ``_stderr`` members of ``struct _reent`` are set to the values of ``_stdin``, ``_stdout``, and ``_stderr`` of ``_GLOBAL_REENT`` (i.e., the structure which is used before FreeRTOS is started).
+The ``__getreent()`` function returns a per-task pointer to ``struct _reent`` in newlib libc. This structure is allocated on the TCB of each task. When a task is initialized, ``_stdin``, ``_stdout``, and ``_stderr`` members of ``struct _reent`` are set to the values of ``_stdin``, ``_stdout``, and ``_stderr`` of ``_GLOBAL_REENT`` (i.e., the structure which is used before FreeRTOS is started).
 
 Such a design has the following consequences:
 

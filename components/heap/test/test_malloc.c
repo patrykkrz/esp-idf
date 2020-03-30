@@ -4,7 +4,6 @@
 
 #include <esp_types.h>
 #include <stdio.h>
-#include "esp32/rom/ets_sys.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -126,5 +125,12 @@ TEST_CASE("unreasonable allocs should all fail", "[heap]")
     TEST_ASSERT_NULL(test_malloc_wrapper(SIZE_MAX / 2));
     TEST_ASSERT_NULL(test_malloc_wrapper(SIZE_MAX - 256));
     TEST_ASSERT_NULL(test_malloc_wrapper(xPortGetFreeHeapSize() - 1));
+}
+
+TEST_CASE("malloc(0) should return a NULL pointer", "[heap]")
+{
+    void *p;
+    p = malloc(0);
+    TEST_ASSERT(p == NULL);
 }
 

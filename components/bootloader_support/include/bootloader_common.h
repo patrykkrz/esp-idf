@@ -16,6 +16,12 @@
 #include "esp_flash_partitions.h"
 #include "esp_image_format.h"
 #include "esp_app_format.h"
+// RESET_REASON is declared in rom/rtc.h
+#if CONFIG_IDF_TARGET_ESP32
+#include "esp32/rom/rtc.h"
+#elif CONFIG_IDF_TARGET_ESP32S2
+#include "esp32s2/rom/rtc.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +33,11 @@ typedef enum {
     GPIO_SHORT_HOLD = -1,   /*!< The short hold GPIO */
     GPIO_NOT_HOLD   = 0     /*!< If the GPIO input is not low */
 } esp_comm_gpio_hold_t;
+
+typedef enum {
+    ESP_IMAGE_BOOTLOADER,
+    ESP_IMAGE_APPLICATION
+} esp_image_type;
 
 /**
  * @brief Calculate crc for the OTA data select.
@@ -82,6 +93,13 @@ bool bootloader_common_erase_part_type_data(const char *list_erase, bool ota_dat
  * @return    Returns true if the list contains the label, false otherwise.
  */
 bool bootloader_common_label_search(const char *list, char *label);
+
+/**
+ * @brief Configure default SPI pin modes and drive strengths
+ *
+ * @param drv GPIO drive level (determined by clock frequency)
+ */
+void bootloader_configure_spi_pins(int drv);
 
 /**
  * @brief Calculates a sha-256 for a given partition or returns a appended digest.
@@ -150,14 +168,23 @@ esp_err_t bootloader_common_get_partition_description(const esp_partition_pos_t 
 uint8_t bootloader_common_get_chip_revision(void);
 
 /**
+ * @brief Query reset reason
+ *
+ * @param cpu_no CPU number
+ * @return reset reason enumeration
+ */
+RESET_REASON bootloader_common_get_reset_reason(int cpu_no);
+
+/**
  * @brief Check if the image (bootloader and application) has valid chip ID and revision
  *
- * @param img_hdr: image header
+ * @param[in] img_hdr: image header
+ * @param[in] type: image type, bootloader or application
  * @return
  *      - ESP_OK: image and chip are matched well
  *      - ESP_FAIL: image doesn't match to the chip
  */
-esp_err_t bootloader_common_check_chip_validity(const esp_image_header_t* img_hdr);
+esp_err_t bootloader_common_check_chip_validity(const esp_image_header_t* img_hdr, esp_image_type type);
 
 /**
  * @brief Configure VDDSDIO, call this API to rise VDDSDIO to 1.9V when VDDSDIO regulator is enabled as 1.8V mode.

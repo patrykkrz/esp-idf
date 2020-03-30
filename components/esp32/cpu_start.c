@@ -28,8 +28,9 @@
 #include "soc/dport_reg.h"
 #include "soc/gpio_periph.h"
 #include "soc/timer_periph.h"
-#include "soc/rtc_wdt.h"
 #include "soc/efuse_periph.h"
+
+#include "hal/wdt_hal.h"
 
 #include "driver/rtc_io.h"
 
@@ -37,7 +38,6 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
-#include "freertos/portmacro.h"
 
 #include "esp_heap_caps_init.h"
 #include "sdkconfig.h"
@@ -45,7 +45,6 @@
 #include "esp_spi_flash.h"
 #include "esp_flash_internal.h"
 #include "nvs_flash.h"
-#include "esp_event.h"
 #include "esp_spi_flash.h"
 #include "esp_private/crosscore_int.h"
 #include "esp_log.h"
@@ -71,6 +70,7 @@
 #include "esp_ota_ops.h"
 #include "esp_efuse.h"
 #include "bootloader_flash_config.h"
+#include "bootloader_mem.h"
 
 #ifdef CONFIG_APP_BUILD_TYPE_ELF_RAM
 #include "esp32/rom/efuse.h"
@@ -128,13 +128,11 @@ void IRAM_ATTR call_start_cpu0(void)
 #else
     RESET_REASON rst_reas[2];
 #endif
-    cpu_configure_region_protection();
-    cpu_init_memctl();
 
-    //Move exception vectors to IRAM
-    asm volatile (\
-                  "wsr    %0, vecbase\n" \
-                  ::"r"(&_init_start));
+    bootloader_init_mem();
+
+    // Move exception vectors to IRAM
+    cpu_hal_set_vecbase(&_init_start);
 
     rst_reas[0] = rtc_get_reset_reason(0);
 
@@ -149,7 +147,10 @@ void IRAM_ATTR call_start_cpu0(void)
 #endif
     ) {
 #ifndef CONFIG_BOOTLOADER_WDT_ENABLE
-        rtc_wdt_disable();
+        wdt_hal_context_t rtc_wdt_ctx = {.inst = WDT_RWDT, .rwdt_dev = &RTCCNTL};
+        wdt_hal_write_protect_disable(&rtc_wdt_ctx);
+        wdt_hal_disable(&rtc_wdt_ctx);
+        wdt_hal_write_protect_enable(&rtc_wdt_ctx);
 #endif
     }
 
@@ -274,13 +275,12 @@ static void wdt_reset_cpu1_info_enable(void)
 
 void IRAM_ATTR call_start_cpu1(void)
 {
-    asm volatile (\
-                  "wsr    %0, vecbase\n" \
-                  ::"r"(&_init_start));
+    // Move exception vectors to IRAM
+    cpu_hal_set_vecbase(&_init_start);
 
     ets_set_appcpu_boot_addr(0);
-    cpu_configure_region_protection();
-    cpu_init_memctl();
+
+    bootloader_init_mem();
 
 #if CONFIG_ESP_CONSOLE_UART_NONE
     ets_install_putc1(NULL);
@@ -358,28 +358,31 @@ void start_cpu0_default(void)
     esp_efuse_disable_basic_rom_console();
 #endif
     rtc_gpio_force_hold_dis_all();
+
+#ifdef CONFIG_VFS_SUPPORT_IO
     esp_vfs_dev_uart_register();
+#endif // CONFIG_VFS_SUPPORT_IO
+
+#if defined(CONFIG_VFS_SUPPORT_IO) && !defined(CONFIG_ESP_CONSOLE_UART_NONE)
     esp_reent_init(_GLOBAL_REENT);
-#ifndef CONFIG_ESP_CONSOLE_UART_NONE
     const char* default_uart_dev = "/dev/uart/" STRINGIFY(CONFIG_ESP_CONSOLE_UART_NUM);
     _GLOBAL_REENT->_stdin  = fopen(default_uart_dev, "r");
     _GLOBAL_REENT->_stdout = fopen(default_uart_dev, "w");
     _GLOBAL_REENT->_stderr = fopen(default_uart_dev, "w");
-#else
-    _GLOBAL_REENT->_stdin  = (FILE*) &__sf_fake_stdin;
-    _GLOBAL_REENT->_stdout = (FILE*) &__sf_fake_stdout;
-    _GLOBAL_REENT->_stderr = (FILE*) &__sf_fake_stderr;
-#endif
+#else // defined(CONFIG_VFS_SUPPORT_IO) && !defined(CONFIG_ESP_CONSOLE_UART_NONE)
+    _REENT_SMALL_CHECK_INIT(_GLOBAL_REENT);
+#endif // defined(CONFIG_VFS_SUPPORT_IO) && !defined(CONFIG_ESP_CONSOLE_UART_NONE)
+
     esp_timer_init();
     esp_set_time_from_rtc();
-#if CONFIG_ESP32_APPTRACE_ENABLE
+#if CONFIG_APPTRACE_ENABLE
     err = esp_apptrace_init();
     assert(err == ESP_OK && "Failed to init apptrace module on PRO CPU!");
 #endif
 #if CONFIG_SYSVIEW_ENABLE
     SEGGER_SYSVIEW_Conf();
 #endif
-#if CONFIG_ESP32_DEBUG_STUBS_ENABLE
+#if CONFIG_ESP_DEBUG_STUBS_ENABLE
     esp_dbg_stubs_init();
 #endif
     err = esp_pthread_init();
@@ -444,15 +447,11 @@ void start_cpu0_default(void)
 
 #if CONFIG_ESP32_ENABLE_COREDUMP
     esp_core_dump_init();
-    size_t core_data_sz = 0;
-    size_t core_data_addr = 0;
-    if (esp_core_dump_image_get(&core_data_addr, &core_data_sz) == ESP_OK && core_data_sz > 0) {
-        ESP_LOGI(TAG, "Found core dump %d bytes in flash @ 0x%x", core_data_sz, core_data_addr);
-    }
 #endif
 
 #if CONFIG_ESP32_WIFI_SW_COEXIST_ENABLE
     esp_coex_adapter_register(&g_coex_adapter_funcs);
+    coex_pre_init();
 #endif
 
     portBASE_TYPE res = xTaskCreatePinnedToCore(&main_task, "main",
@@ -474,7 +473,7 @@ void start_cpu1_default(void)
 #if CONFIG_ESP32_TRAX_TWOBANKS
     trax_start_trace(TRAX_DOWNCOUNT_WORDS);
 #endif
-#if CONFIG_ESP32_APPTRACE_ENABLE
+#if CONFIG_APPTRACE_ENABLE
     esp_err_t err = esp_apptrace_init();
     assert(err == ESP_OK && "Failed to init apptrace module on APP CPU!");
 #endif
@@ -558,7 +557,10 @@ static void main_task(void* args)
 
     // Now that the application is about to start, disable boot watchdog
 #ifndef CONFIG_BOOTLOADER_WDT_DISABLE_IN_USER_CODE
-    rtc_wdt_disable();
+    wdt_hal_context_t rtc_wdt_ctx = {.inst = WDT_RWDT, .rwdt_dev = &RTCCNTL};
+    wdt_hal_write_protect_disable(&rtc_wdt_ctx);
+    wdt_hal_disable(&rtc_wdt_ctx);
+    wdt_hal_write_protect_enable(&rtc_wdt_ctx);
 #endif
 #ifdef CONFIG_BOOTLOADER_EFUSE_SECURE_VERSION_EMULATE
     const esp_partition_t *efuse_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_EFUSE_EM, NULL);

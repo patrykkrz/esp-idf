@@ -60,8 +60,9 @@ static const char io_mode_str[][IO_STR_LEN] = {
     "qio",
 };
 
-_Static_assert(sizeof(io_mode_str)/IO_STR_LEN == SPI_FLASH_READ_MODE_MAX, "the io_mode_str should be consistent with the esp_flash_read_mode_t defined in spi_flash_ll.h");
+_Static_assert(sizeof(io_mode_str)/IO_STR_LEN == SPI_FLASH_READ_MODE_MAX, "the io_mode_str should be consistent with the esp_flash_io_mode_t defined in spi_flash_ll.h");
 
+esp_err_t esp_flash_read_chip_id(esp_flash_t* chip, uint32_t* flash_id);
 
 /* Static function to notify OS of a new SPI flash operation.
 
@@ -115,6 +116,18 @@ esp_err_t IRAM_ATTR esp_flash_init(esp_flash_t *chip)
         return ESP_ERR_INVALID_ARG;
     }
 
+    //read chip id
+    uint32_t flash_id;
+    int retries = 10;
+    do {
+        err = esp_flash_read_chip_id(chip, &flash_id);
+    } while (err == ESP_ERR_FLASH_NOT_INITIALISED && retries-- > 0);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+    chip->chip_id = flash_id;
+
     if (!esp_flash_chip_driver_initialized(chip)) {
         // Detect chip_drv
         err = detect_spi_flash_chip(chip);
@@ -139,38 +152,43 @@ esp_err_t IRAM_ATTR esp_flash_init(esp_flash_t *chip)
 
     if (err == ESP_OK) {
         // Try to set the flash mode to whatever default mode was chosen
-        err = chip->chip_drv->set_read_mode(chip);
+        err = chip->chip_drv->set_io_mode(chip);
+        if (err == ESP_ERR_FLASH_NO_RESPONSE && !esp_flash_is_quad_mode(chip)) {
+            //some chips (e.g. Winbond) don't support to clear QE, treat as success
+            err = ESP_OK;
+        }
     }
     // Done: all fields on 'chip' are initialised
+    return spiflash_end(chip, err);
+}
+
+//this is not public, but useful in unit tests
+esp_err_t IRAM_ATTR esp_flash_read_chip_id(esp_flash_t* chip, uint32_t* flash_id)
+{
+    esp_err_t err = spiflash_start(chip);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    // Send generic RDID command twice, check for a matching result and retry in case we just powered on (inner
+    // function fails if it sees all-ones or all-zeroes.)
+    err = chip->host->read_id(chip->host, flash_id);
+
+    if (err == ESP_OK) { // check we see the same ID twice, in case of transient power-on errors
+        uint32_t new_id;
+        err = chip->host->read_id(chip->host, &new_id);
+        if (err == ESP_OK && (new_id != *flash_id)) {
+            err = ESP_ERR_FLASH_NOT_INITIALISED;
+        }
+    }
+
     return spiflash_end(chip, err);
 }
 
 static esp_err_t IRAM_ATTR detect_spi_flash_chip(esp_flash_t *chip)
 {
     esp_err_t err;
-    uint32_t flash_id;
-    int retries = 10;
-    do {
-        err = spiflash_start(chip);
-        if (err != ESP_OK) {
-            return err;
-        }
-
-        // Send generic RDID command twice, check for a matching result and retry in case we just powered on (inner
-        // function fails if it sees all-ones or all-zeroes.)
-        err = chip->host->read_id(chip->host, &flash_id);
-
-        if (err == ESP_OK) { // check we see the same ID twice, in case of transient power-on errors
-            uint32_t new_id;
-            err = chip->host->read_id(chip->host, &new_id);
-            if (err == ESP_OK && (new_id != flash_id)) {
-                err = ESP_ERR_FLASH_NOT_INITIALISED;
-            }
-        }
-
-        err = spiflash_end(chip, err);
-    } while (err != ESP_OK && retries-- > 0);
-
+    uint32_t flash_id = chip->chip_id;
 
     // Detect the chip and set the chip_drv structure for it
     const spi_flash_chip_t **drivers = esp_flash_registered_chips;
@@ -479,12 +497,28 @@ esp_err_t IRAM_ATTR esp_flash_read(esp_flash_t *chip, void *buffer, uint32_t add
     bool direct_read = chip->host->supports_direct_read(chip->host, buffer);
     uint8_t* temp_buffer = NULL;
 
+    //each time, we at most read this length
+    //after that, we release the lock to allow some other operations
+    size_t read_chunk_size = MIN(MAX_READ_CHUNK, length);
+
     if (!direct_read) {
-        uint32_t length_to_allocate = MAX(MAX_READ_CHUNK, length);
-        length_to_allocate = (length_to_allocate+3)&(~3);
-        temp_buffer = heap_caps_malloc(length_to_allocate, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        ESP_LOGV(TAG, "allocate temp buffer: %p", temp_buffer);
-        if (temp_buffer == NULL) return ESP_ERR_NO_MEM;
+        /* Allocate temporary internal buffer to use for the actual read. If the preferred size
+           doesn't fit in free internal memory, allocate the largest available free block.
+
+           (May need to shrink read_chunk_size and retry due to race conditions with other tasks
+           also allocating from the heap.)
+        */
+        unsigned retries = 5;
+        while(temp_buffer == NULL && retries--) {
+            read_chunk_size = MIN(read_chunk_size, heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            read_chunk_size = (read_chunk_size + 3) & ~3;
+            temp_buffer = heap_caps_malloc(read_chunk_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        }
+        ESP_LOGV(TAG, "allocate temp buffer: %p (%d)", temp_buffer, read_chunk_size);
+
+        if (temp_buffer == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     esp_err_t err = ESP_OK;
@@ -496,9 +530,9 @@ esp_err_t IRAM_ATTR esp_flash_read(esp_flash_t *chip, void *buffer, uint32_t add
         }
         //if required (dma buffer allocated), read to the buffer instead of the original buffer
         uint8_t* buffer_to_read = (temp_buffer)? temp_buffer : buffer;
-        //each time, we at most read this length
-        //after that, we release the lock to allow some other operations
-        uint32_t length_to_read = MIN(MAX_READ_CHUNK, length);
+
+        // Length we will read this iteration is either the chunk size or the remaining length, whichever is smaller
+        size_t length_to_read = MIN(read_chunk_size, length);
 
         if (err == ESP_OK) {
             err = chip->chip_drv->read(chip, buffer_to_read, address, length_to_read);
@@ -617,6 +651,36 @@ esp_err_t IRAM_ATTR esp_flash_read_encrypted(esp_flash_t *chip, uint32_t address
     return spi_flash_read_encrypted(address, out_buffer, length);
 }
 
+// test only, non-public
+IRAM_ATTR esp_err_t esp_flash_get_io_mode(esp_flash_t* chip, bool* qe)
+{
+    VERIFY_OP(get_io_mode);
+    esp_flash_io_mode_t io_mode;
+
+    esp_err_t err = spiflash_start(chip);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = chip->chip_drv->get_io_mode(chip, &io_mode);
+    err = spiflash_end(chip, err);
+    if (err == ESP_OK) {
+        *qe = (io_mode == SPI_FLASH_QOUT);
+    }
+    return err;
+}
+
+IRAM_ATTR esp_err_t esp_flash_set_io_mode(esp_flash_t* chip, bool qe)
+{
+    VERIFY_OP(set_io_mode);
+    chip->read_mode = (qe? SPI_FLASH_QOUT: SPI_FLASH_SLOWRD);
+    esp_err_t err = spiflash_start(chip);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = chip->chip_drv->set_io_mode(chip);
+    return spiflash_end(chip, err);
+}
+
 #ifndef CONFIG_SPI_FLASH_USE_LEGACY_IMPL
 esp_err_t esp_flash_app_disable_protect(bool disable)
 {
@@ -634,27 +698,32 @@ esp_err_t esp_flash_app_disable_protect(bool disable)
 
 #ifndef CONFIG_SPI_FLASH_USE_LEGACY_IMPL
 
+/* Translate any ESP_ERR_FLASH_xxx error code (new API) to a generic ESP_ERR_xyz error code
+ */
 static IRAM_ATTR esp_err_t spi_flash_translate_rc(esp_err_t err)
 {
     switch (err) {
         case ESP_OK:
-            return ESP_OK;
         case ESP_ERR_INVALID_ARG:
-            return ESP_ERR_INVALID_ARG;
+        case ESP_ERR_NO_MEM:
+            return err;
+
         case ESP_ERR_FLASH_NOT_INITIALISED:
         case ESP_ERR_FLASH_PROTECTED:
             return ESP_ERR_INVALID_STATE;
+
         case ESP_ERR_NOT_FOUND:
         case ESP_ERR_FLASH_UNSUPPORTED_HOST:
         case ESP_ERR_FLASH_UNSUPPORTED_CHIP:
             return ESP_ERR_NOT_SUPPORTED;
+
         case ESP_ERR_FLASH_NO_RESPONSE:
             return ESP_ERR_INVALID_RESPONSE;
+
         default:
-            ESP_EARLY_LOGE(TAG, "unexpected spi flash error code: %x", err);
+            ESP_EARLY_LOGE(TAG, "unexpected spi flash error code: 0x%x", err);
             abort();
     }
-    return ESP_OK;
 }
 
 esp_err_t IRAM_ATTR spi_flash_erase_range(uint32_t start_addr, uint32_t size)

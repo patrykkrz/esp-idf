@@ -57,6 +57,9 @@ btc_dm_cb_t *btc_dm_cb_ptr;
 extern bt_status_t btc_av_source_execute_service(BOOLEAN b_enable);
 extern bt_status_t btc_av_sink_execute_service(BOOLEAN b_enable);
 #endif
+#if BTC_HF_INCLUDED
+extern bt_status_t btc_hf_execute_service(BOOLEAN b_enable);
+#endif
 #if BTC_HF_CLIENT_INCLUDED
 extern bt_status_t btc_hf_client_execute_service(BOOLEAN b_enable);
 #endif
@@ -510,6 +513,11 @@ static bt_status_t btc_in_execute_service_request(tBTA_SERVICE_ID service_id,
         btc_av_sink_execute_service(b_enable);
         break;
 #endif
+#if BTC_HF_INCLUDED
+    case BTA_HFP_SERVICE_ID:
+        btc_hf_execute_service(b_enable);
+        break;
+#endif /* #if BTC_HF_INCLUDED */
 #if BTC_HF_CLIENT_INCLUDED
     case BTA_HFP_HS_SERVICE_ID:
         btc_hf_client_execute_service(b_enable);
@@ -711,8 +719,12 @@ void btc_dm_sec_cb_handler(btc_msg_t *msg)
                 btc_dm_cb.pairing_cb.ble.is_pid_key_rcvd = TRUE;
                 memcpy(&btc_dm_cb.pairing_cb.ble.pid_key, &p_data->ble_key.p_key_value->pid_key,
                             sizeof(tBTM_LE_PID_KEYS));
-                memcpy(&param.ble_security.ble_key.p_key_value.pid_key,
-                             &p_data->ble_key.p_key_value->pid_key, sizeof(tBTM_LE_PID_KEYS));
+                //Note: The memory size of the addr_type in ble_security.ble_key.p_key_value.pid_key is different from that of p_data->ble_key.p_key_value->pid_key.
+                memcpy(&param.ble_security.ble_key.p_key_value.pid_key.irk,
+                             &p_data->ble_key.p_key_value->pid_key.irk, ESP_BT_OCTET16_LEN);
+                param.ble_security.ble_key.p_key_value.pid_key.addr_type = p_data->ble_key.p_key_value->pid_key.addr_type;
+                memcpy(&param.ble_security.ble_key.p_key_value.pid_key.static_addr,
+                             &p_data->ble_key.p_key_value->pid_key.static_addr, ESP_BD_ADDR_LEN);
                 break;
             }
             case BTM_LE_KEY_PCSRK: {
